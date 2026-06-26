@@ -18,8 +18,8 @@
  * CÁCH CHẠY:
  *     node embed_fbx.js "<thư-mục-chứa-fbx>" "<đường-dẫn-assets_fbx.js-output>"
  * Ví dụ:
- *     node embed_fbx.js "C:/Users/Admin/Desktop/LevelEditorGuide/demo game" \
- *                       "C:/Users/Admin/Desktop/LevelEditorGuide/demo game/jelly3d_src/assets_fbx.js"
+ *     node embed_fbx.js "D:/Projects/ProjectDemoGame/SandDropDemo/Assets" \
+ *                       "D:/Projects/ProjectDemoGame/SandDropDemo/src/assets_fbx.js"
  * --------------------------------------------------------------------------
  */
 'use strict';

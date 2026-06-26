@@ -69,31 +69,47 @@ có **input/output riêng** và bàn giao nhau qua file `.txt` — để tiết 
 > Chạy lệnh trong **Git Bash** (trừ phần Node có thể chạy PowerShell). Thay
 > `<...>` bằng đường dẫn thật. Dùng đường dẫn **kiểu Windows** `C:/Users/...`.
 
-### Bước 0 — đặt biến đường dẫn (tiện copy)
+### Bước 0 — nạp biến đường dẫn (chỉ 1 dòng)
 ```bash
-ROOT="C:/Users/Admin/Desktop/LevelEditorGuide/demo game"
-PIPE="D:/Projects/ProjectDemoGame/.claude/pipeline"
-SRC="$ROOT/jelly3d_src"
+source "D:/Projects/ProjectDemoGame/.claude/pipeline/config.sh"
 ```
+File `config.sh` định nghĩa sẵn: `ROOT, ASSETS, REFS, DOCS, SRC, PIPE`.
+Đổi project sau này → **chỉ sửa `config.sh`**, không động vào README/script.
+
+Cấu trúc project hiện tại (`SandDropDemo`):
+```
+SandDropDemo/
+├── Assets/   (5 file .fbx)                    -> $ASSETS
+├── Refs/     (gameplay_*.mp4, Layout_*.jpg)   -> $REFS
+├── Docs/     (các .txt + frames tách ra)      -> $DOCS
+└── src/      (engine template = jelly3d_src)  -> $SRC   (xem Bước 0b)
+```
+
+### Bước 0b — (1 lần) copy engine template vào project
+Engine template (`lib/` three r136 + `tools/` + vỏ `game.html`) tái dùng từ demo cũ:
+```bash
+cp -r "C:/Users/Admin/Desktop/LevelEditorGuide/demo game/jelly3d_src" "$SRC"
+```
+✅ **PASS khi:** `$SRC/lib/`, `$SRC/tools/`, `$SRC/game.html` tồn tại.
 
 ### Bước 1 — (CƠ HỌC) nhúng FBX → assets_fbx.js
 ```bash
-node "$PIPE/scripts/embed_fbx.js" "$ROOT" "$SRC/assets_fbx.js"
+node "$PIPE/scripts/embed_fbx.js" "$ASSETS" "$SRC/assets_fbx.js"
 ```
 ✅ **PASS khi:** in ra 5 dòng `+ jelly/jar/lid/frame/belt` và `ĐÃ GHI: .../assets_fbx.js`.
-❌ Nếu "THIẾU FILE": kiểm tra tên `.fbx` tiếng Việt khớp bảng `ASSET_MAP` trong script.
+❌ Nếu "THIẾU FILE": kiểm tra tên `.fbx` tiếng Việt trong `$ASSETS` khớp bảng `ASSET_MAP`.
 
 ### Bước 2 — (CƠ HỌC) tách frame video → ảnh
 ```bash
-bash "$PIPE/scripts/extract_frames.sh" "$ROOT/gameplay_1_game_1.mp4" "$ROOT/frames_g1" 1
+bash "$PIPE/scripts/extract_frames.sh" "$REFS/gameplay_1_game_1.mp4" "$DOCS/frames_g1" 1
 ```
-✅ **PASS khi:** in `ĐÃ TÁCH N frame vào ...` và thư mục `frames_g1/` có `frame_001.jpg`...
-> Lặp lại cho từng video gameplay bạn muốn phân tích.
+✅ **PASS khi:** in `ĐÃ TÁCH N frame vào ...` và thư mục `$DOCS/frames_g1/` có `frame_001.jpg`...
+> Lặp lại cho từng video trong `$REFS/` bạn muốn phân tích.
 
 ### Bước 3 — Agent A: phân tích gameplay
 Giao cho 1 agent với role `agents/A_analyze_gameplay.md`.
-- **Input đưa vào:** thư mục `frames_g1/`, ảnh `Layout_*.jpg`, template `MECHANIC_ORIGINAL.txt`.
-- **Yêu cầu output:** ghi file `$ROOT/MECHANIC_ORIGINAL.txt`.
+- **Input đưa vào:** `$DOCS/frames_g1/`, ảnh `$REFS/Layout_*.jpg` + `$REFS/Ảnh của level demo.jpg`, template `MECHANIC_ORIGINAL.txt`.
+- **Yêu cầu output:** ghi file `$DOCS/MECHANIC_ORIGINAL.txt`.
 
 ✅ **PASS khi:** file tồn tại, mọi mục template có nội dung (hoặc ghi "không quan sát
 được"), mục 7 liệt kê điểm cần bạn xác nhận. **Bạn đọc & chốt các điểm (suy đoán).**
@@ -101,15 +117,15 @@ Giao cho 1 agent với role `agents/A_analyze_gameplay.md`.
 ### Bước 4 — Agent B: gom thay đổi mechanic (song song với Bước 3)
 Giao cho 1 agent với role `agents/B_collect_changes.md`.
 - **Input:** yêu cầu chỉnh mechanic của bạn (text) + template `MECHANIC_CHANGES.txt`.
-- **Output:** file `$ROOT/MECHANIC_CHANGES.txt` (chỉ DELTA, có ID [ADD/MOD/DEL-x]).
+- **Output:** file `$DOCS/MECHANIC_CHANGES.txt` (chỉ DELTA, có ID [ADD/MOD/DEL-x]).
 
 ✅ **PASS khi:** mỗi thay đổi có ID + lý do; mục D (ràng buộc) và E (không đụng tới)
 đã điền. Nếu **không đổi gì** so với gốc → tạo file rỗng chỉ giữ mục D, E.
 
 ### Bước 5 — Agent C: build game
 Giao cho 1 agent với role `agents/C_build.md`.
-- **Input:** `MECHANIC_ORIGINAL.txt` + `MECHANIC_CHANGES.txt` + `assets_fbx.js` + `jelly3d_src/`.
-- **Output:** `game_core.js`, build 1 file `.html`, và `BUILD_HANDOFF.txt`.
+- **Input:** `$DOCS/MECHANIC_ORIGINAL.txt` + `$DOCS/MECHANIC_CHANGES.txt` + `$SRC/assets_fbx.js` + `$SRC/`.
+- **Output:** `$SRC/game_core.js`, build 1 file `.html`, và `$DOCS/BUILD_HANDOFF.txt`.
 
 Kiểm tra thủ công sau khi C báo xong:
 ```bash
@@ -117,16 +133,16 @@ Kiểm tra thủ công sau khi C báo xong:
 bash "$SRC/tools/run.sh" "$SRC/game.html" "$SRC/tools/out.png" 2600 "" 200 460 940
 # Chạy 1 kịch bản tới WIN
 bash "$SRC/tools/run.sh" "$SRC/game.html" "$SRC/tools/win.png" 800 "$SRC/tools/test_win.js" 300
-# Đóng gói 1 file
-node "$SRC/tools/build_single.js" "$SRC" "$ROOT/Game.html"
+# Đóng gói 1 file (đặt ngay trong project)
+node "$SRC/tools/build_single.js" "$SRC" "$ROOT/SandDrop.html"
 ```
 ✅ **PASS khi:** `run.sh` in `ready=true`; ảnh `out.png` đúng layout; `test_win.js` in
-`CODE_RESULT: {won:true,...}`; mở `Game.html` (double-click) chơi được.
+`CODE_RESULT: {won:true,...}`; mở `SandDrop.html` (double-click) chơi được.
 ❌ **Bẫy đường dẫn:** nếu `ERR_FILE_NOT_FOUND` → đang truyền `/c/Users/...`; phải là `C:/Users/...`.
 
 ### Bước 6 — Agent D: fix bug & tinh chỉnh
 Giao cho 1 agent với role `agents/D_fix_debug.md`.
-- **Input:** `jelly3d_src/`, `BUILD_HANDOFF.txt`, mô tả bug (text hoặc ảnh lỗi).
+- **Input:** `$SRC/`, `$DOCS/BUILD_HANDOFF.txt`, mô tả bug (text hoặc ảnh lỗi).
 - **Output:** code đã sửa + build lại + cập nhật `BUILD_HANDOFF.txt`.
 
 ✅ **PASS khi:** Agent D đưa được **bằng chứng ảnh trước/sau** hoặc `CODE_RESULT`
@@ -136,11 +152,12 @@ chứng minh bug hết; KHÔNG chấp nhận tuyên bố "đã fix" mà không c
 
 ## 4. Checklist tổng (in ra mà tick)
 
+- [ ] B0 `source config.sh` xong; engine template đã copy vào `$SRC` (lib/, tools/, game.html).
 - [ ] B1 `assets_fbx.js` sinh ra, đủ 5 asset.
 - [ ] B2 frame video tách xong.
 - [ ] B3 `MECHANIC_ORIGINAL.txt` đầy đủ, đã chốt các điểm suy đoán.
 - [ ] B4 `MECHANIC_CHANGES.txt` có ID + ràng buộc.
-- [ ] B5 `run.sh` ready=true, layout đúng, test_win `won:true`, `Game.html` mở được.
+- [ ] B5 `run.sh` ready=true, layout đúng, test_win `won:true`, `SandDrop.html` mở được.
 - [ ] B6 Bug fix có bằng chứng ảnh/test, handoff cập nhật.
 
 ---

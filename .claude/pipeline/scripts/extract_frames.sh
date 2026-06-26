@@ -11,8 +11,8 @@
 #   bash extract_frames.sh "<video.mp4>" "<thư-mục-output-frames>" [fps]
 # Ví dụ:
 #   bash extract_frames.sh \
-#     "C:/Users/Admin/Desktop/LevelEditorGuide/demo game/gameplay_1_game_1.mp4" \
-#     "C:/Users/Admin/Desktop/LevelEditorGuide/demo game/frames_g1" 1
+#     "D:/Projects/ProjectDemoGame/SandDropDemo/Refs/gameplay_1_game_1.mp4" \
+#     "D:/Projects/ProjectDemoGame/SandDropDemo/Docs/frames_g1" 1
 # --------------------------------------------------------------------------
 set -e
 VIDEO="$1"
