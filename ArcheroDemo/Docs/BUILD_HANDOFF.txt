@@ -1,0 +1,246 @@
+================================================================================
+ BUILD_HANDOFF — TÀI LIỆU BÀN GIAO SAU BUILD (Agent C)
+ Tên game: ArcheroDemo (top-down roguelike shooter kiểu Archero 2)
+ Ngày: 2026-09-07
+================================================================================
+MỤC LỤC
+  0. Game là gì
+  1. File quan trọng
+  2. CFG / thông số layout
+  3. Mechanic đã chốt trong demo
+  4. Cách build & test
+  5. API debug (window.__game)
+  6. Giới hạn đã biết / việc làm tiếp
+
+--------------------------------------------------------------------------------
+0. GAME LÀ GÌ (1 đoạn)
+--------------------------------------------------------------------------------
+Demo 3D chạy trong 1 file HTML: một phòng duy nhất tỉ lệ dọc 9:16, camera
+top-down nghiêng 30 độ CỐ ĐỊNH. Người chơi điều khiển hero bằng WASD/mũi tên;
+ĐỨNG YÊN thì hero tự bắn quái gần nhất, DI CHUYỂN thì ngừng bắn. Quái spawn
+theo 5 đợt (wave) nối tiếp gồm 3 loại: slime xanh (chậm/trâu/damage chạm),
+bọ đỏ (đuổi -> vòng đỏ telegraph 0.6s -> lao/đánh), hoa quái (đứng yên bắn đạn).
+Giết quái -> nhận XP -> lên cấp -> pause chọn 1 trong 3 card. Dọn hết đợt 5 =
+CHIẾN THẮNG; HP hero về 0 = THẤT BẠI. Cả hai đều có nút "Chơi lại" reset toàn
+bộ mà KHÔNG reload trang.
+
+--------------------------------------------------------------------------------
+1. FILE QUAN TRỌNG (đường dẫn tuyệt đối)
+--------------------------------------------------------------------------------
+- Sản phẩm cuối (.html self-contained, double-click là chạy offline):
+    D:/Project/ClaudeDemoGame3D/ArcheroDemo/ArcheroDemo.html      (~783 KB)
+- Source sửa được:
+    D:/Project/ClaudeDemoGame3D/ArcheroDemo/src/
+      game.html          — vỏ UI: canvas 9:16 letterbox + HUD DOM + 2 overlay
+      game_core.js       — TOÀN BỘ logic game (file chính, sửa ở đây)
+      assets_fbx.js      — AUTO-GEN, hiện `window.FBX = {}` rỗng. KHÔNG sửa tay.
+      lib/               — three.min.js (r136 GLOBAL), FBXLoader, fflate, NURBS*.
+                           KHÔNG sửa, KHÔNG thêm lib, KHÔNG CDN.
+      tools/run.sh          — Chrome headless: screenshot + chạy test -> CODE_RESULT
+      tools/test_win.js     — kịch bản thắng
+      tools/test_lose.js    — kịch bản thua
+      tools/build_single.js — gộp thành 1 file .html
+      shots/             — ảnh chụp kiểm tra (start/win/lose/wave2/single)
+- Spec đầu vào đã dùng (KHÔNG sửa):
+    Docs/MECHANIC_ORIGINAL.txt (Agent A), Docs/MECHANIC_CHANGES.txt (Agent B)
+
+--------------------------------------------------------------------------------
+2. CFG / THÔNG SỐ LAYOUT  (game_core.js, mục 0 — chỉnh độ khó ở ĐÂY)
+--------------------------------------------------------------------------------
+QUY ƯỚC ĐƠN VỊ: chiều rộng phòng ROOM_W = 10 world-unit  <=>  100%.
+  => hằng PCT = 0.1 world-unit = 1% chiều rộng phòng. Mọi số "%/giây" của
+  MECHANIC_CHANGES mục G được ghi trong CFG dưới dạng `<số> * PCT`.
+  Sàn nằm trên mặt phẳng XZ (y=0); x = ngang, z = dọc (z âm = "lên" màn hình).
+
+CFG.room     w=10, h=17.78 (9:16), wallH=0.9, margin=0.55 (biên tâm entity)
+CFG.camera   tiltDeg=30 (nghiêng khỏi phương đứng), dist=40, fitMargin=1.06
+             -> OrthographicCamera, khung ngắm tính lại trong resize()
+CFG.hero     speed=35*PCT | hpMax=1000 | radius=0.34 | height=0.95     [mục G]
+CFG.arrow    speed=250*PCT | damage=100 | fireRate=2.5 phát/s          [mục G]
+CFG.slime    hp=400 | speed=12*PCT | touchDamage=80 | touchCd=1.0s     [mục G]
+CFG.bug      hp=250 | speed=30*PCT | damage=120 | telegraph=0.6s       [mục G]
+             attackRange=1.05 | hitRadius=1.25 | dashSpeed=90*PCT
+             dashTime=0.18 | cooldown=1.5   (4 số cuối do Agent C tự chọn)
+CFG.flower   hp=300 | fireInterval=1.5s | bulletSpeed=60*PCT
+             bulletDamage=100                                          [mục G]
+CFG.wave     count=5 | nextDelay=1.5s | spawnMinDistPct=25
+             list = 5 mảng quái từng đợt (xem mục 3)                   [MOD-6]
+CFG.heart    dropChance=0.15 | heal=200 | pickRadius=0.55 | life=12s   [mục G]
+CFG.level    thresholds=[5,8,12,16] | cardCount=3
+             atkBonus=0.25 | fireRateBonus=0.20 | hpBonus=300          [mục G/MOD-3]
+CFG.color    bảng màu primitive fallback
+
+LƯU Ý: các số có ghi [mục G] là số ĐÃ CHỐT với user, Agent C KHÔNG được đổi.
+Việc tune thuộc phạm vi Agent D.
+
+--------------------------------------------------------------------------------
+3. MECHANIC ĐÃ CHỐT TRONG DEMO — bản đồ HÀM <-> DELTA ID
+--------------------------------------------------------------------------------
+Trong game_core.js mỗi hàm áp dụng delta đều có comment `// [MOD-x]` tại chỗ.
+
+ 1) Input bàn phím WASD + mũi tên (đồng thời cả hai) ............... [MOD-1]
+    keyDir(), initInput(), updateHero()
+    Rule GỐC giữ nguyên: di chuyển -> ngừng bắn; đứng yên -> auto-fire quái
+    gần nhất (updateHero + nearestEnemy + shootArrow).
+
+ 2) Chỉ 1 phòng duy nhất, nhiều wave nối tiếp .................. [MOD-2][DEL-1]
+    buildRoom(), updateWaveFlow() — không có cửa/chuyển phòng.
+
+ 3) Lên cấp: pause + 3 card, 1 màu rarity duy nhất ................. [MOD-3]
+    openLevelUp(), renderCards(), chooseCard(), CARD_POOL
+    Pool đúng 3 loại: +25% Tấn Công / +20% Tốc độ bắn / +300 HP tối đa
+    (chọn HP thì hồi đầy máu). Random CÓ THỂ trùng loại giữa các slot.
+    XP: mỗi quái = 1 XP; mốc 5/8/12/16 (gainXP, xpNeed).
+
+ 4) Đúng 3 loại quái ............................................... [MOD-4]
+    updateEnemies() phân nhánh:
+      - slime : moveToward + damage chạm có cooldown
+      - bug   : updateBug() — máy trạng thái chase -> telegraph (vòng đỏ
+                addRing 0.6s trên sàn) -> dash -> cool. Rời khỏi vòng = né.
+      - flower: đứng yên, shootEnemyBullet() theo chu kỳ 1.5s.
+    Đạn quái (updateEnemyBullets) chỉ va chạm HERO, không va chạm quái.
+    Đạn hero (updateArrows) chỉ va chạm QUÁI.
+    Bỏ hẳn ếch/ong/goblin/gấu; bỏ boss ........................... [DEL-2]
+    Bỏ node đặc biệt (Vòng Quay/Valkyrie/Thiên Thần/Ác Quỷ/cuộn) .. [DEL-3]
+
+ 5) Camera top-down nghiêng nhẹ CỐ ĐỊNH, thấy trọn phòng ........... [MOD-5]
+    initThree() + resize() — OrthographicCamera, KHÔNG follow, KHÔNG cuộn.
+    Phòng vừa đúng 1 màn hình 9:16.
+
+ 6) HUD wave rút gọn 2 dòng: "Đợt k/5" + "Quái còn X" .............. [MOD-6]
+    syncHUD(); thành phần 5 wave trong CFG.wave.list:
+      w1: 3 slime
+      w2: 2 bọ đỏ + 2 hoa quái
+      w3: 3 bọ đỏ + 2 slime
+      w4: 2 hoa quái + 3 bọ đỏ
+      w5: 2 hoa quái + 3 bọ đỏ + 2 slime
+    spawnWave()/spawnPos(): spawn trong phòng, cách hero >= 25% chiều rộng
+    phòng. Hết quái -> wave kế sau 1.5s (updateWaveFlow).
+
+ 7) Thắng khi dọn hết 5 wave -> overlay "CHIẾN THẮNG" + Chơi lại .... [ADD-1]
+    updateWaveFlow() -> endGame(true)
+
+ 8) Game Over khi HP hero <= 0 -> overlay "THẤT BẠI" + Chơi lại ..... [ADD-2]
+    damageHero() -> endGame(false); nút dùng chung -> start() -> reset()
+    (reset toàn bộ state, KHÔNG reload trang).
+
+ 9) Tim hồi máu: 15% rơi khi quái chết, tự nhặt khi chạm, hồi 200 HP.
+    killEnemy() -> spawnHeart(); updateHearts().
+
+10) Số damage nổi: DOM (div.dmg trong #fx), chiếu bằng camera.project.
+    addText() / updateTexts().
+
+11) Va chạm: circle-circle 2D trên mặt sàn (dist2). Hero & quái bị tường
+    chặn bằng clampToRoom(); separateEnemies() đẩy quái khỏi chồng nhau.
+
+12) AssetLoader tách riêng (RÀNG BUỘC mục D):
+    Assets.load()/make()/has(), ASSET_SIZE, normalizeToSize(), pickClips().
+    - Có window.FBX[key] -> atob -> ArrayBuffer -> THREE.FBXLoader().parse()
+      -> chuẩn hoá scale bằng Box3 về đúng ASSET_SIZE, canh đáy-tâm về gốc,
+      bọc trong Group để game logic set position không phá offset.
+    - Không có -> primitive màu thuần cùng kích thước (object Prim).
+    - Clip animation lấy theo tên chứa idle/run/attack (không phân biệt hoa
+      thường) -> Assets.clips(key). HIỆN CHƯA phát clip (xem mục 6).
+    Game logic KHÔNG biết mesh đến từ FBX hay primitive.
+    Key ASSET_MAP: hero, monster_flower, monster_bug, monster_slime, arrow,
+    floor, wall.
+
+--------------------------------------------------------------------------------
+4. CÁCH BUILD & TEST (copy chạy được ngay, Git Bash)
+--------------------------------------------------------------------------------
+# (khi user đã export FBX) nhúng asset -> assets_fbx.js
+node "D:/Project/ClaudeDemoGame3D/.claude/pipeline/scripts/embed_fbx.js" \
+     "D:/Project/ClaudeDemoGame3D/ArcheroDemo/Assets" \
+     "D:/Project/ClaudeDemoGame3D/ArcheroDemo/src/assets_fbx.js"
+
+# chụp ảnh trạng thái đầu (in ready=true + shot=...)
+cd /d/Project/ClaudeDemoGame3D/ArcheroDemo/src
+bash tools/run.sh "D:/Project/ClaudeDemoGame3D/ArcheroDemo/src/game.html" \
+     "D:/Project/ClaudeDemoGame3D/ArcheroDemo/src/shots/start.png" 2600
+
+# chạy test (in thêm dòng CODE_RESULT: {...})
+bash tools/run.sh ".../src/game.html" ".../src/shots/win.png"  2000 tools/test_win.js
+bash tools/run.sh ".../src/game.html" ".../src/shots/lose.png" 2000 tools/test_lose.js
+
+# gộp 1 file self-contained
+node tools/build_single.js "D:/Project/ClaudeDemoGame3D/ArcheroDemo/src" \
+                           "D:/Project/ClaudeDemoGame3D/ArcheroDemo/ArcheroDemo.html"
+
+# kiểm bản single vẫn chạy
+bash tools/run.sh "D:/Project/ClaudeDemoGame3D/ArcheroDemo/ArcheroDemo.html" \
+     "D:/Project/ClaudeDemoGame3D/ArcheroDemo/src/shots/single.png" 2600
+
+CÁCH run.sh HOẠT ĐỘNG (không dùng npm package, không dùng CDP):
+  Sinh 1 file HTML tạm cạnh file gốc = HTML gốc + `window.__NOSHADOW=true`
+  (chèn ngay sau <body>) + nội dung test.js + 1 harness ghi kết quả vào
+  <div id="__probe">{"ready":..,"result":..}</div>. Chrome chạy 2 pass trên
+  file đó: pass 1 `--screenshot`, pass 2 `--dump-dom` (parse ra ready +
+  CODE_RESULT). Dùng `--headless=new --virtual-time-budget=<waitMs>
+  --enable-unsafe-swiftshader --window-size=540,960`. File tạm tự xoá.
+  Cú pháp: bash tools/run.sh <html> <out.png> <waitMs> [test.js] [extra...]
+
+KẾT QUẢ TEST THỰC TẾ (bản build này):
+  test_win :  {"won":true,"wave":5,"phase":"won","level":3,"heroHP":1000,
+               "enemiesAlive":0,"cardPicks":2,"steps":462}
+  test_lose:  {"lost":true,"phase":"lost","wave":1,"heroHP":0,
+               "enemiesAlive":3,"steps":632,"simSeconds":10.5}
+  ArcheroDemo.html (bản single) chạy test_win: {"won":true,...,"heroHP":1300}
+
+--------------------------------------------------------------------------------
+5. API DEBUG (window.__game expose gì)
+--------------------------------------------------------------------------------
+  CFG                    — toàn bộ tham số (sửa nóng được, vd CFG.arrow.damage=0)
+  state                  — state hiện tại (hero, enemies[], arrows[], ebullets[],
+                           hearts[], rings[], texts[], wave, level, xp, phase, stat)
+  start()                — reset + spawn wave 1 + bật vòng lặp rAF
+  reset()                — reset toàn bộ state, KHÔNG reload trang
+  tick(dt)               — chạy 1 bước logic (giây); dùng để mô phỏng headless
+  setInput({up,down,left,right}) — giả lập phím
+  killAll()              — giết mọi quái đang sống (có tính XP + rơi tim)
+  spawnWave(k)           — spawn đúng thành phần wave k (1..5)
+  chooseCard(i)          — chọn card thứ i khi phase='levelup'
+  getSnapshot()          — {wave, enemiesAlive, heroHP, heroHPMax, level, xp, phase}
+                           phase ∈ 'playing' | 'levelup' | 'won' | 'lost'
+  hasFBX(key)            — key đó đang dùng FBX thật hay primitive
+  _internal.{Assets,scene}
+  window.__NOSHADOW = true (đặt TRƯỚC khi game_core.js chạy) -> tắt shadow map,
+  cần cho Chrome headless (software GL rất chậm).
+
+--------------------------------------------------------------------------------
+6. GIỚI HẠN ĐÃ BIẾT / VIỆC LÀM TIẾP
+--------------------------------------------------------------------------------
+GIỚI HẠN
+- CHƯA CÓ FBX: window.FBX rỗng nên toàn bộ hình đang là primitive màu thuần
+  (hero capsule xanh + mũ trụ đen; slime cầu dẹt xanh lá; bọ đỏ box đỏ; hoa
+  quái trụ + cầu hồng; đạn capsule trắng; sàn plane lát ô canvas 2D; tường box
+  viền sáng). Đây là fallback ĐÚNG THEO mục D, không phải bug.
+- AnimationClip: đã có hàm dò clip idle/run/attack nhưng CHƯA gắn AnimationMixer
+  (vì chưa có FBX để biết tên/khung clip). Cần bổ sung khi swap asset thật.
+- three r136 KHÔNG có CapsuleGeometry -> tự ghép trụ + 2 chỏm cầu (capsuleGroup).
+- KHÔNG dùng fog: camera ortho đặt xa 40 unit nên fog theo khoảng cách nhuộm
+  đen cả phòng (đã gặp và đã bỏ).
+- Chưa có juice của gốc: vệt cầu vồng khi chạy, cột sáng rarity, hiệu ứng lóe
+  khi trúng đòn, animation chết. Cố ý bỏ cho demo gọn.
+- Hero nhìn từ trên xuống bị "mũ" che phần lớn thân (góc nghiêng 30 độ). Sẽ tự
+  hết khi có FBX hero thật.
+- Không có joystick ảo/touch (đúng MOD-1, chỉ bàn phím) -> demo chỉ chơi trên
+  desktop.
+- run.sh dựa vào --dump-dom + --virtual-time-budget: test phải chạy ĐỒNG BỘ
+  trong 1 lượt JS (gọi tick() thủ công), không dùng setTimeout dài.
+
+VIỆC TIẾP THEO
+1. SWAP FBX KHI USER EXPORT: bỏ .fbx vào ArcheroDemo/Assets/ đúng tên
+   (hero.fbx, monster_flower.fbx, monster_bug.fbx, monster_slime.fbx,
+   arrow.fbx, floor.fbx, wall.fbx) -> chạy embed_fbx.js -> build_single.js.
+   KHÔNG cần sửa game logic. Chỉ cần kiểm lại ASSET_SIZE (kích thước chuẩn hoá)
+   và hướng "forward" của model: game quy ước forward = +Z, nếu FBX quay hướng
+   khác thì xoay trong Assets.make() (thêm offset rotation.y), đừng sửa logic.
+2. TUNE MỤC G (việc của Agent D): các số speed/HP/damage/cadence/XP hiện là
+   khởi điểm tạm do user chốt, chưa playtest. Ưu tiên xem: nhịp bắn 2.5/s có
+   quá chậm không; slime HP 400 với damage 100/phát = 4 phát/con; wave 5 có 7
+   quái cùng lúc có quá nặng không; mốc XP 5/8/12/16 khiến demo chỉ lên tới
+   Lv.3 (tổng 24 quái cả 5 wave < 25 XP cần cho Lv.4) — nếu muốn thấy đủ 4 lần
+   chọn card thì phải hạ mốc XP hoặc tăng số quái.
+3. Bổ sung AnimationMixer + phát clip idle/run/attack sau khi có FBX.
+4. Cân nhắc thêm juice tối thiểu: nháy màu khi quái trúng đòn, animation chết.
+================================================================================

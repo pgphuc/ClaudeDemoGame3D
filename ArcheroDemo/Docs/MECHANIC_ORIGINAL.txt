@@ -1,0 +1,179 @@
+================================================================================
+ MECHANIC_ORIGINAL — MÔ TẢ CƠ CHẾ GAME GỐC (do Agent A sinh ra)
+ Nguồn: ArcheroDemo/Refs/gameplay.mp4 (155 frame, tách 0.5 fps, ~5 phút 9 giây)
+         + ArcheroDemo/Refs/Layout_1.png (ảnh layout tham chiếu)
+ Ngày: 2026-09-07
+================================================================================
+GHI CHÚ QUAN TRỌNG VỀ INPUT: Template gốc (mục 2, 4) được thiết kế cho game
+sort/merge puzzle với 5 asset FBX jelly/jar/lid/frame/belt — KHÔNG áp dụng cho
+game này. Đây là game bắn súng top-down roguelike kiểu Archero 2. Thư mục
+ArcheroDemo/Assets/ hiện RỖNG (không có FBX nào được cấp cho project này) —
+xem mục 7.
+
+--------------------------------------------------------------------------------
+1. THỂ LOẠI & MỤC TIÊU
+--------------------------------------------------------------------------------
+- Thể loại: Top-down roguelike shooter kiểu Archero 2 (hero tự bắn khi đứng
+  yên, quái spawn theo wave/phòng, nhặt XP lên cấp, chọn skill giữa trận).
+- Mục tiêu người chơi (điều kiện WIN): không quan sát được trong 155 frame —
+  video kết thúc giữa lúc nhân vật vẫn đang chiến đấu ở Lv.4, đợt (wave)
+  15/50 quái, chưa thấy màn hình thắng/kết màn (suy đoán: mục tiêu là sống
+  sót qua đủ 50 quái + boss của "đợt" hiện tại, tương tự Archero 2 gốc).
+- Điều kiện THUA: không quan sát được — HP nhân vật không về 0 trong video.
+
+--------------------------------------------------------------------------------
+2. THÀNH PHẦN MÀN HÌNH (đối chiếu Layout_1.png)
+--------------------------------------------------------------------------------
+- HUD trên cùng: nút pause (trái) | Lv.X + thanh XP (giữa) | coin (phải).
+- Dưới thanh XP: thanh "Đợt" (wave) — chuỗi icon: kiếm chéo+số (đợt thường),
+  icon vương miện/thiên thần (đợt đặc biệt/thưởng), icon boss, và bộ đếm
+  quái dạng "X/50" (vd 5/50, 9/50, 15/50) ở cuối chuỗi.
+- Vùng chơi: phòng nhìn top-down hơi nghiêng (isometric nhẹ), nền đá phiến
+  ghép mảng không đều, rìa phòng là đảo bay có cỏ/hoa trang trí ngoài biên.
+  Layout_1.png còn có badge "x1.5" (multiplier) góc trên-trái — KHÔNG thấy
+  badge này active trong 155 frame đã xem (suy đoán: buff tạm thời, không
+  phải luôn hiện).
+- Góc dưới màn hình: joystick ảo (vòng tròn mờ, núm xanh dương ở giữa) —
+  input di chuyển duy nhất, không có nút bắn riêng (bắn tự động).
+- Asset FBX: KHÔNG áp dụng — không có asset FBX nào cho project này (xem mục 7).
+
+--------------------------------------------------------------------------------
+3. VÒNG LẶP CHƠI CHÍNH (core loop, theo thứ tự)
+--------------------------------------------------------------------------------
+B1) Người chơi kéo joystick ảo để di chuyển hero trong phòng.
+B2) Khi hero DI CHUYỂN → KHÔNG bắn. Khi hero ĐỨNG YÊN (thả joystick) → tự
+    động bắn liên tục vào quái gần nhất đang trong tầm nhìn (auto-target).
+B3) Quái trúng đạn hiện số sát thương trắng "-XXX" nổi lên; quái chết biến
+    mất (không thấy animation chết rõ ràng), có thể rơi vật phẩm.
+B4) Vật phẩm/XP (gem/kim cương nhỏ) tự nhặt khi hero đi qua, đổ vào thanh XP
+    trên cùng.
+B5) Thanh XP đầy → màn hình "Tăng Cấp" hiện ra (game pause), người chơi chọn
+    1 trong 3 thẻ kỹ năng → tiếp tục chơi (frame_001, 021-023, 044-046,
+    144-146).
+B6) Hết quái trong đợt hiện tại → đợt tiếp theo spawn (số trong icon kiếm ở
+    thanh "Đợt" tăng dần: 1→2→3...→13 xuyên suốt video).
+B7) Một số đợt được thay bằng "node đặc biệt" (không phải quái) — xem mục 4.
+B8) Khoảng mỗi ~10 đợt có 1 đợt BOSS: cảnh báo "DANGER!!" → boss xuất hiện
+    với thanh máu riêng trên đầu màn hình → đánh tới khi thanh máu boss cạn
+    (frame_113-131).
+B9) Sau boss, mạch chơi tiếp tục sang khu vực/biome mới (nền desert, đảo bay
+    lơ lửng ở rìa khung hình) rồi lặp lại từ B1 (frame_140+).
+
+--------------------------------------------------------------------------------
+4. QUY TẮC CHI TIẾT (rule-by-rule, cái build agent cần)
+--------------------------------------------------------------------------------
+- Tương tác đầu vào: CHỈ 1 joystick ảo (kéo để di chuyển). Không tap-to-shoot,
+  không nút riêng cho skill/ability trong lúc combat (Skill/blessing chỉ
+  chọn qua card lúc lên cấp hoặc gặp NPC đặc biệt).
+- Bắn tự động: dừng di chuyển → auto-fire vào quái gần nhất; nhịp bắn nhanh,
+  liên tục miễn còn quái trong tầm và hero đứng yên (suy đoán cadence chính
+  xác theo giây — không đo được vì FPS lấy mẫu 0.5fps quá thưa để tính RPS).
+- Quy tắc "rơi/di chuyển" của game này không phải trọng lực như puzzle —
+  KHÔNG áp dụng.
+- Sát thương & né: quái có đòn cận chiến telegraph bằng VÒNG TRÒN ĐỎ dưới
+  chân quái trước khi tấn công (frame_024-027, 108, 147-150) — người chơi
+  cần rời khỏi vòng đỏ để né.
+- HP hero: thanh máu xanh lá cố định phía trên đầu hero, số HP hiển thị
+  (vd 1336, 1124, 1336...); khi trúng đòn hiện "-XXX" trắng/đỏ và thanh máu
+  giảm. Có tim đỏ rơi trên nền — suy đoán là vật phẩm hồi máu khi nhặt
+  (frame_026-034, không thấy rõ số hồi cụ thể).
+- Skill xuyên giáp/nhiều mục tiêu: sau khi chọn "Tên Xuyên Tim" (đạn xuyên
+  địch, frame_023), thấy nhiều số "-345"/"-375" nổi đồng thời trên 2-3 quái
+  thẳng hàng → xác nhận đạn xuyên hoạt động đúng như mô tả thẻ skill.
+- Trạng thái kẹt/deadlock: không quan sát được (không áp dụng cho thể loại
+  shooter này).
+- Node đặc biệt (thay quái ở 1 số đợt):
+  * Vòng Quay: bánh xe 6 ô (coin x400/x600/x1200, "Cuộn x3/x6"), tự quay,
+    "Nhấn chỗ trống để bỏ qua" (frame_003-006).
+  * Valkyrie: "Bạn đã gặp Valkyrie" → chọn 1/2 thẻ "Chúc Phúc", rarity
+    Huyền Thoại (buff mạnh, vd tăng đồng thời HP/Công Tốc/Tấn Công hoặc chỉ
+    Tấn Công) (frame_029-033).
+  * Thiên Thần: "Bạn đã gặp thiên thần" → chọn 1 món quà (frame_113, nội
+    dung thẻ cụ thể chưa thấy rõ).
+  * Ác Quỷ: "Bạn đã gặp ác quỷ" → risk/reward: xác nhận ký khế ước, MẤT HP
+    tối đa (vd -167 HP tối đa) để nhận 1 skill rarity Hiếm (frame_133-134).
+- Card chọn skill: mỗi lần lên cấp hiện 3 thẻ (đôi khi Valkyrie chỉ 2 thẻ),
+  mỗi thẻ có rarity riêng (Tốt=xanh lá, Hiếm=xanh dương, Sử Thi=hồng/tím,
+  Huyền Thoại=vàng), icon, tên, mô tả ngắn kèm mũi tên tăng/giảm chỉ số.
+  Nút "Năng lực đã học" góc dưới-phải để xem lại skill đã chọn (không mở
+  trong video).
+
+--------------------------------------------------------------------------------
+5. THÔNG SỐ ƯỚC LƯỢNG (để cân game)
+--------------------------------------------------------------------------------
+- Kích thước phòng so với khung hình: chiều rộng phòng ≈ gần full màn hình
+  (trừ viền đảo bay 2 bên); chiều cao phòng lớn hơn 1 màn hình, camera cuộn
+  theo hero di chuyển lên trên (suy đoán ~3-4x chiều cao khung hình, chưa đo
+  chính xác được do không thấy toàn cảnh phòng 1 lần).
+- Camera: top-down, nghiêng nhẹ (isometric-lite), khóa theo hero, không xoay.
+- Tốc độ hero: khó đo chính xác vì mẫu 0.5fps quá thưa (~2 giây/frame,
+  quãng đường hero di chuyển giữa 2 frame liên tiếp có thể đã đổi hướng
+  nhiều lần) — suy đoán tốc độ hero ~15-25% chiều rộng màn hình/giây khi
+  di chuyển liên tục, KHÔNG chắc chắn, cần playtest thật để chỉnh.
+- Tốc độ đạn: đạn hero bay gần như tức thời trong 1 frame (vệt trắng dài) —
+  suy đoán tốc độ đạn rất nhanh, ước lượng > 100% chiều rộng màn hình/giây.
+- Số quái mỗi wave quan sát được: dao động 1-5 quái cùng lúc trên màn hình
+  (vd 3 hoa quái đứng yên bắn tầm xa ở frame_053-057; 4-5 quái đỏ vòng nguy
+  hiểm ở frame_034; 2-3 gấu lông ở frame_148-150).
+- Bộ đếm "X/50" ở cuối thanh Đợt: thấy tăng dần 5/50 → 9/50 → 10/50 → 15/50
+  qua video — suy đoán là tổng số quái cần hạ trong "chặng" hiện tại (không
+  chắc, có thể là số quái đã giết lũy kế của toàn màn chơi).
+- Số màn/level-up quan sát: Lv.1 → Lv.2 (frame_021) → Lv.3 (frame_053) →
+  Lv.4 (frame_144) trong ~5 phút 9 giây video.
+- Số frame đã xem: 155/155 (100%), khoảng thời gian video: 5 phút 9 giây,
+  frame_N ≈ giây thứ 2N.
+- Lưu ý: có 1 đoạn dài từ frame_051 đến frame_109 (~116 giây, ~58 frame)
+  màn hình "Tăng Cấp" Lv.3 đứng yên hoàn toàn giống nhau (suy đoán: video
+  bị dừng/người quay để màn hình chờ, không phải hành vi game) — không rút
+  ra thêm rule mới từ đoạn này ngoài việc UI chọn skill KHÔNG tự động timeout
+  (đứng chờ người chơi bấm, không giới hạn thời gian).
+
+--------------------------------------------------------------------------------
+6. ĐIỂM "GAME FEEL" (juice) ĐÁNG GIỮ
+--------------------------------------------------------------------------------
+- Vệt cầu vồng (rainbow trail) dưới chân hero khi di chuyển liên tục nhiều
+  frame liền (frame_040-043, 052, 108, 137-139, 151...) — có thể là hiệu ứng
+  chạy/dash thường trực chứ không phải skill 1 lần.
+- Cảnh báo boss: chữ "DANGER!!" đỏ chớp full-screen + banner "Boss Tấn Công"
+  trước khi boss xuất hiện (frame_114).
+- Thanh máu boss tách riêng, hiện tên/icon boss phía trên cùng màn hình khi
+  đang trong đợt boss (frame_115-131).
+- Cột sáng dọc màu theo rarity đổ xuống 2 bên khi mở màn chọn skill/blessing
+  (xanh dương=Hiếm, xanh lá=Tốt, hồng=Sử Thi, vàng=Huyền Thoại) (frame_022,
+  030, 044, 145).
+- Số sát thương nổi bay lên kèm hiệu ứng lóe sáng tại điểm trúng đòn.
+- Đạn xuyên gây nhiều số damage hiện đồng thời trên nhiều quái thẳng hàng.
+- Vật phẩm rơi (cuộn giấy, tim, gem) phát sáng viền vàng để thu hút chú ý
+  (frame_007-008).
+
+--------------------------------------------------------------------------------
+7. ĐIỂM KHÔNG CHẮC / CẦN NGƯỜI XÁC NHẬN (ưu tiên theo mức ảnh hưởng tới code)
+--------------------------------------------------------------------------------
+[CAO] Không có asset FBX nào trong ArcheroDemo/Assets/ (thư mục rỗng) — pipeline
+      gốc (A_analyze_gameplay.md) giả định có 5 FBX jelly/jar/lid/frame/belt
+      của game khác. Cần xác nhận: build bằng asset placeholder (primitive/
+      sprite) hay sẽ có FBX riêng cho hero/quái/joystick UI được bổ sung sau?
+[CAO] Không quan sát được điều kiện THUA (game over) và màn hình WIN/kết màn
+      trong 155 frame — cần xác nhận rule thắng/thua cụ thể để code (vd hết
+      HP thì thua? có giới hạn thời gian? clear hết X đợt thì thắng?).
+[CAO] Tốc độ di chuyển hero/đạn chỉ là suy đoán thô (do mẫu 0.5fps quá thưa) —
+      cần chốt số cụ thể khi tune (hoặc lấy theo cảm giác Archero 2 gốc).
+[TRUNG BÌNH] Cadence bắn (số phát/giây) không đo được từ frame thưa — cần
+      quyết định giá trị cụ thể lúc code.
+[TRUNG BÌNH] Ý nghĩa chính xác bộ đếm "X/50" (tổng quái cần giết trong
+      chặng hiện tại, hay số quái đã giết lũy kế toàn màn?) — ảnh hưởng logic
+      điều kiện qua đợt/qua phòng.
+[TRUNG BÌNH] Icon "kiếm chéo + số" tăng dần trong thanh Đợt (6,7,8...13) —
+      chưa rõ đây là số đợt (wave index) hay số lần nâng cấp vũ khí; cần
+      xác nhận ý nghĩa để code đúng progression.
+[TRUNG BÌNH] Tim đỏ rơi trên nền — suy đoán là item hồi máu khi nhặt, nhưng
+      không thấy rõ số HP hồi hay cách kích hoạt (tự nhặt khi đi qua hay
+      phải bấm?).
+[THẤP] Ý nghĩa/hiệu lực nội dung cụ thể của các "Cuộn" (Cuộn Áo Giáp, Cuộn Hộ
+      Phù, Cuộn Nhẫn) nhặt được — chỉ thấy tên, không thấy hiệu ứng áp dụng.
+[THẤP] Nội dung thẻ "món quà của thiên thần" (Angel gift) chưa thấy rõ icon/
+      tên/hiệu ứng cụ thể trong video (chỉ thấy màn hình mở ra).
+[THẤP] Chuyển biome sau boss (đảo bay desert xuất hiện ở rìa) — không rõ đây
+      là chuyển sang "phòng mới" (level mới) hay chỉ đổi phông nền trong
+      cùng 1 map dài; ảnh hưởng cách chia scene/level trong code.
+================================================================================

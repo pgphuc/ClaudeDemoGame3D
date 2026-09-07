@@ -30,15 +30,15 @@ AskUserQuestion nếu lựa chọn rời rạc) cho tới khi có đủ:
 
 1. **Project root**: dùng project hiện có (đọc `ROOT` trong `config.sh`) hay tạo
    project demo mới? Nếu mới — tên thư mục, đặt ở đâu dưới
-   `D:/Projects/ProjectDemoGame/`. Cấu trúc con bắt buộc: `Assets/`, `Refs/`,
+   `D:/Project/ClaudeDemoGame3D/`. Cấu trúc con bắt buộc: `Assets/`, `Refs/`,
    `Docs/`, `src/` (như mô tả ở README mục 3, Bước 0).
 2. **Video gameplay gốc** (`.mp4`) đã đặt trong `Refs/` chưa — đường dẫn cụ thể.
    Nếu có nhiều video/nhiều màn, cần rõ mỗi video ứng với gì.
 3. **Ảnh layout tham chiếu** (vd `Layout_*.jpg`) trong `Refs/`, nếu có.
-4. **Bộ asset FBX** (thường 5 file) và mapping vai trò của chúng (map theo
-   `ASSET_MAP` trong `scripts/embed_fbx.js` — hỏi rõ nếu bộ asset khác 5 loại
-   jelly/jar/lid/frame/belt hiện có, vì Agent C sẽ ràng buộc CHỈ dùng đúng asset
-   có sẵn, không tự vẽ thêm).
+4. **Bộ asset FBX** và mapping vai trò của chúng — sửa bảng `ASSET_MAP` trong
+   `scripts/embed_fbx.js` theo project (key → tên file). File thiếu → script bỏ
+   qua, game dùng primitive fallback qua `AssetLoader`; Agent C CHỈ dùng asset
+   trong `ASSET_MAP`, không tự vẽ mesh phức tạp thay FBX.
 5. **Yêu cầu thay đổi mechanic** so với gameplay gốc trong video (input trực tiếp
    cho Agent B) — có thể là "không đổi gì, giữ y nguyên gameplay gốc".
 

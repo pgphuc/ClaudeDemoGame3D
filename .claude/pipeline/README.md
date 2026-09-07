@@ -71,7 +71,7 @@ có **input/output riêng** và bàn giao nhau qua file `.txt` — để tiết 
 
 ### Bước 0 — nạp biến đường dẫn (chỉ 1 dòng)
 ```bash
-source "D:/Projects/ProjectDemoGame/.claude/pipeline/config.sh"
+source "D:/Project/ClaudeDemoGame3D/.claude/pipeline/config.sh"
 ```
 File `config.sh` định nghĩa sẵn: `ROOT, ASSETS, REFS, DOCS, SRC, PIPE`.
 Đổi project sau này → **chỉ sửa `config.sh`**, không động vào README/script.
@@ -96,8 +96,9 @@ cp -r "C:/Users/Admin/Desktop/LevelEditorGuide/demo game/jelly3d_src" "$SRC"
 ```bash
 node "$PIPE/scripts/embed_fbx.js" "$ASSETS" "$SRC/assets_fbx.js"
 ```
-✅ **PASS khi:** in ra 5 dòng `+ jelly/jar/lid/frame/belt` và `ĐÃ GHI: .../assets_fbx.js`.
-❌ Nếu "THIẾU FILE": kiểm tra tên `.fbx` tiếng Việt trong `$ASSETS` khớp bảng `ASSET_MAP`.
+✅ **PASS khi:** in `+ <key> <- <file>.fbx` cho mỗi key trong `ASSET_MAP` có file, và `ĐÃ GHI: .../assets_fbx.js`.
+⚠️ Dòng `- <key> THIẾU: ...` = file chưa có → script BỎ QUA key đó (không lỗi); game dùng
+primitive fallback qua `AssetLoader`. Bộ key/tên file theo project: sửa bảng `ASSET_MAP` trong `embed_fbx.js`.
 
 ### Bước 2 — (CƠ HỌC) tách frame video → ảnh
 ```bash

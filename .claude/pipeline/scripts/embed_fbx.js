@@ -28,12 +28,16 @@ const path = require('path');
 
 // Map: tên key trong window.FBX  ->  tên file .fbx gốc (đúng tên tiếng Việt).
 // Nếu bạn đổi tên asset, chỉ cần sửa bảng này.
+// ArcheroDemo: file do user export từ Unity (FBX Exporter). Thiếu file -> BỎ QUA
+// (game dùng primitive fallback qua AssetLoader), không exit.
 const ASSET_MAP = {
-  jelly: 'Jelly cube.fbx',
-  jar:   'Lọ.fbx',
-  lid:   'Nắp lọ.fbx',
-  frame: 'Khung tranh.fbx',
-  belt:  'Băng chuyền.fbx',
+  hero:           'hero.fbx',
+  monster_flower: 'monster_flower.fbx',
+  monster_bug:    'monster_bug.fbx',
+  monster_slime:  'monster_slime.fbx',
+  arrow:          'arrow.fbx',
+  floor:          'floor.fbx',
+  wall:           'wall.fbx',
 };
 
 function main() {
@@ -49,13 +53,13 @@ function main() {
   for (const [key, fname] of Object.entries(ASSET_MAP)) {
     const fpath = path.join(srcDir, fname);
     if (!fs.existsSync(fpath)) {
-      console.error(`THIẾU FILE: ${fpath}`);
-      process.exit(2);
+      console.warn(`  - ${key.padEnd(14)} THIẾU: ${fname} (bỏ qua, game dùng primitive fallback)`);
+      continue;
     }
     const buf = fs.readFileSync(fpath);
     out[key] = buf.toString('base64');
     totalBytes += buf.length;
-    console.log(`  + ${key.padEnd(6)} <- ${fname}  (${(buf.length/1024).toFixed(0)} KB)`);
+    console.log(`  + ${key.padEnd(14)} <- ${fname}  (${(buf.length/1024).toFixed(0)} KB)`);
   }
 
   // Sinh file JS. Mỗi base64 nằm trên 1 dòng để dễ diff/đọc.

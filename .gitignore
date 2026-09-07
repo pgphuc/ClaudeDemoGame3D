@@ -1,0 +1,6 @@
+# IDE
+.idea/
+
+# Video gameplay gốc & frame tách ra (nặng; tách lại bằng .claude/pipeline/scripts/extract_frames.sh)
+*/Refs/*.mp4
+*/Docs/frames_*/

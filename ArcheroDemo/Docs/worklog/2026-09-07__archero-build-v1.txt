@@ -1,0 +1,10 @@
+SUMMARY: ArcheroDemo v1 build xong qua pipeline A→B→C (primitive, camera cố định, 3 quái, 5 wave) — run.sh ready=true + CODE_RESULT test_win PASS; user play-test: CHƯA ĐẠT (chưa asset, gameplay xấu, HUD chưa ổn, cần camera follow + UI/model giống video).
+
+Đã làm:
+- Tạo project ArcheroDemo (Assets/Refs/Docs/src), config.sh trỏ ROOT/PIPE sang repo này; tách 155 frame (0.5fps) từ Refs/gameplay.mp4.
+- Agent A → Docs/MECHANIC_ORIGINAL.txt; Agent B → Docs/MECHANIC_CHANGES.txt (ADD-1/2, MOD-1..6, DEL-1..3, mục G tham số); Agent C (Opus) → src/ (game.html, game_core.js, tools/run.sh|build_single.js|test_win.js|test_lose.js), ArcheroDemo.html, Docs/BUILD_HANDOFF.txt.
+- embed_fbx.js: ASSET_MAP 7 key Archero, thiếu file → bỏ qua (primitive fallback); src/lib/ three r136 global + FBXLoader tải từ jsdelivr (không có jelly3d_src/).
+- Docs/ASSET_CANDIDATES.txt: map prefab Archero2_Sources → hero/monster_flower/monster_bug/monster_slime/arrow/floor/wall; hero "trứng đội mũ" KHÔNG có trong dump.
+- Skill mới .claude/skills/newsession/SKILL.md (port từ jc_rpg, adapt config.sh/BUILD_HANDOFF).
+
+Feedback user chờ session sau: đổi MOD-5 (camera cố định → follow hero), HUD/UI theo Layout_1.png, model từ FBX export Unity, gameplay feel.

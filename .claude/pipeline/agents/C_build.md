@@ -21,7 +21,7 @@
 - 1 file `BUILD_HANDOFF.txt` điền theo template (để Agent D / session sau dùng).
 
 ## RÀNG BUỘC BẮT BUỘC (lấy từ MECHANIC_CHANGES mục D)
-- Dùng ĐÚNG 5 asset FBX, KHÔNG tự vẽ thay. Không có texture → màu material thuần.
+- Dùng ĐÚNG asset trong `ASSET_MAP` (`assets_fbx.js`), KHÔNG tự vẽ thay; key thiếu FBX → primitive fallback cùng kích thước qua `AssetLoader`. Không có texture → màu material thuần.
 - KHÔNG convert GLB, KHÔNG dùng Python. FBXLoader.parse nạp trực tiếp trong browser.
 - three.js r136 GLOBAL (biến THREE.*, KHÔNG ES module) → đóng gói 1 file bằng nối `<script>`.
 - Sản phẩm cuối: 1 file HTML self-contained, mở bằng double-click.

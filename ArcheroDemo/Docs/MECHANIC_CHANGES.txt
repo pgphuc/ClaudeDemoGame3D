@@ -1,0 +1,166 @@
+================================================================================
+ MECHANIC_CHANGES — THAY ĐỔI MECHANIC SO VỚI GỐC (do Agent B sinh ra)
+ Ngày: 2026-09-07
+================================================================================
+HƯỚNG DẪN ĐIỀN: File này chỉ ghi DELTA (phần KHÁC so với MECHANIC_ORIGINAL.txt).
+KHÔNG chép lại toàn bộ mechanic gốc. Agent C áp dụng: GỐC + DELTA = game demo.
+Mỗi thay đổi 1 dòng/khối, có ID để bug-fix sau này trỏ tới được.
+
+--------------------------------------------------------------------------------
+A. THÊM MỚI (không có trong game gốc)
+--------------------------------------------------------------------------------
+[ADD-1] Trạng thái kết thúc "Thắng" khi dọn hết TẤT CẢ wave trong phòng duy
+        nhất — hiện overlay "You Win" kèm nút "Chơi lại" (dùng chung nút với
+        ADD-2). Số wave N = 5 (CHỐT CỨNG, không còn mặc định tạm — xem
+        thành phần từng wave ở [MOD-6]).
+        | Lý do: demo chỉ có 1 phòng, cần điểm kết cho playtest | Ưu tiên: cao
+        | ĐÃ CHỐT VỚI USER
+
+[ADD-2] Game Over overlay khi hero chết, kèm nút "Chơi lại" reset toàn bộ
+        phòng (spawn lại từ wave 1, reset HP/XP/vị trí hero).
+        | Lý do: yêu cầu user (mục F đã chốt) | Ưu tiên: cao
+        | ĐÃ CHỐT VỚI USER
+
+--------------------------------------------------------------------------------
+B. SỬA ĐỔI (có ở gốc nhưng làm khác đi)
+--------------------------------------------------------------------------------
+[MOD-1] Gốc: điều khiển di chuyển bằng virtual joystick chạm màn hình
+        -> Demo: điều khiển di chuyển bằng bàn phím, BẮT BUỘC hỗ trợ ĐỒNG
+        THỜI cả WASD và phím mũi tên (không phải chỉ 1 trong 2)
+        | Lý do: demo chạy trên desktop browser, không có input chạm
+        | Ưu tiên: cao | ĐÃ CHỐT VỚI USER
+        Ghi chú: hành vi "di chuyển thì ngừng tự bắn, đứng yên thì tự bắn quái
+        gần nhất" GIỮ NGUYÊN như gốc — chỉ đổi nguồn input di chuyển, không
+        đổi rule bắn/ngừng bắn.
+
+[MOD-2] Gốc: nhiều phòng/màn nối tiếp nhau, có tiến trình qua các stage
+        -> Demo: chỉ 1 phòng duy nhất, không chuyển phòng, không stage tiếp
+        theo. Bên trong phòng duy nhất này vẫn giữ nhiều WAVE quái nối tiếp
+        nhau như gốc: dọn hết wave hiện tại -> spawn wave kế tiếp; dọn hết
+        wave cuối (N = 5, xem ADD-1, MOD-6) = Thắng.
+        | Lý do: yêu cầu user "chỉ 1 phòng" | Ưu tiên: cao | ĐÃ CHỐT VỚI USER
+
+[MOD-3] Gốc: màn hình chọn skill/upgrade khi lên cấp (nhiều loại thẻ, 4 bậc
+        rarity Tốt/Hiếm/Sử Thi/Huyền Thoại)
+        -> Demo: GIỮ màn chọn skill, bản đơn giản hóa: pause game, hiện 3
+        card random từ pool CHỈ 3 loại — (1) +25% Tấn Công, (2) +20% Tốc độ
+        bắn, (3) +300 HP tối đa (và hồi đầy máu khi chọn); random có thể ra
+        trùng loại ở các slot khác nhau (không cần unique). Rarity hiển thị
+        1 màu DUY NHẤT cho mọi thẻ (bỏ hệ 4 màu rarity của gốc). Chọn 1 card
+        rồi resume game.
+        | Lý do: yêu cầu user (mục F đã chốt) | Ưu tiên: vừa | ĐÃ CHỐT VỚI USER
+
+[MOD-4] Gốc: nhiều loại quái quan sát được (hoa quái tầm xa, quái đỏ vòng
+        nguy hiểm/telegraph, gấu lông, và các loại khác chưa liệt kê hết)
+        -> Demo: THU HẸP còn ĐÚNG 3 loại quái:
+        1. Hoa quái tầm xa: đứng yên tại chỗ, bắn đạn về hero theo chu kỳ.
+        2. Bọ đỏ cận chiến: đuổi theo hero, khi tới gần thì telegraph vòng
+           tròn đỏ dưới chân ~0.6s rồi lao/đánh (kế thừa cơ chế telegraph
+           vòng đỏ của gốc).
+        3. Slime xanh: di chuyển chậm về phía hero, HP cao ("trâu"), gây
+           damage khi chạm vào hero.
+        Bỏ hẳn: ếch, ong, goblin, gấu.
+        | Lý do: yêu cầu user thu hẹp bộ quái cho demo | Ưu tiên: cao
+        | ĐÃ CHỐT VỚI USER
+
+[MOD-5] Gốc: phòng cao hơn 1 màn hình, camera top-down nghiêng nhẹ CUỘN
+        theo hero khi di chuyển lên trên; rìa phòng đổi biome/đảo bay sau
+        boss
+        -> Demo: phòng vừa ĐÚNG 1 màn hình, tỉ lệ dọc 9:16 (theo
+        Layout_1.png), camera top-down nghiêng nhẹ CỐ ĐỊNH — KHÔNG follow,
+        KHÔNG cuộn theo hero. KHÔNG có biome/đảo bay chuyển đổi (chỉ 1
+        phòng, xem MOD-2).
+        | Lý do: yêu cầu user "phòng vừa 1 màn hình" | Ưu tiên: cao
+        | ĐÃ CHỐT VỚI USER
+
+[MOD-6] Gốc: thanh "Đợt" gồm chuỗi icon kiếm chéo+số/vương miện/boss + bộ
+        đếm quái dạng "X/50" cuối chuỗi
+        -> Demo: HUD wave rút gọn còn 2 dòng chữ: "Đợt k/5" (k = wave hiện
+        tại, 1-5) và "Quái còn X" (X = số quái còn sống trong wave hiện
+        tại). BỎ hẳn bộ đếm kiểu "X/50" và icon kiếm+số của gốc.
+        Thành phần 5 wave (3-5 quái/wave, tăng dần độ khó):
+          w1: 3 slime xanh
+          w2: 2 bọ đỏ + 2 hoa quái
+          w3: 3 bọ đỏ + 2 slime xanh
+          w4: 2 hoa quái + 3 bọ đỏ
+          w5: 2 hoa quái + 3 bọ đỏ + 2 slime xanh
+        | Lý do: yêu cầu user, đơn giản hóa HUD wave cho demo 1 phòng
+        | Ưu tiên: vừa | ĐÃ CHỐT VỚI USER
+
+--------------------------------------------------------------------------------
+C. BỎ ĐI (có ở gốc, demo không làm)
+--------------------------------------------------------------------------------
+[DEL-1] Cơ chế chuyển sang phòng/màn kế tiếp sau khi dọn quái (door mở sang
+        phòng mới, loading giữa các phòng, v.v.)
+        | Lý do: hệ quả trực tiếp của "chỉ 1 phòng" (xem MOD-2)
+
+[DEL-2] Đợt BOSS: cảnh báo "DANGER!!" full-screen, boss xuất hiện, thanh
+        máu boss riêng trên đầu màn hình.
+        | Lý do: yêu cầu user bỏ boss (xem MOD-4) | ĐÃ CHỐT VỚI USER
+
+[DEL-3] Toàn bộ node đặc biệt thay quái ở gốc: Vòng Quay (bánh xe
+        coin/cuộn), Valkyrie (Chúc Phúc Huyền Thoại), Thiên Thần (món quà),
+        Ác Quỷ (risk/reward mất HP tối đa lấy skill Hiếm); và vật phẩm cuộn
+        giấy (Cuộn Áo Giáp/Hộ Phù/Nhẫn) nhặt được. Demo chỉ còn: wave quái
+        + card chọn skill khi lên cấp (xem MOD-3).
+        | Lý do: yêu cầu user đơn giản hóa, không cần node đặc biệt cho demo
+        | ĐÃ CHỐT VỚI USER
+
+--------------------------------------------------------------------------------
+D. RÀNG BUỘC KỸ THUẬT BẮT BUỘC (constraint — Agent C phải tuân)
+--------------------------------------------------------------------------------
+- Asset FBX do user export từ Unity (FBX Exporter), đặt trong
+  D:/Project/ClaudeDemoGame3D/ArcheroDemo/Assets/; danh sách file FBX ghi
+  trong assets_fbx.js. Agent C phải code lớp AssetLoader TÁCH RIÊNG: khi
+  FBX tương ứng chưa có thì dùng primitive three.js (capsule/box/sphere
+  màu thuần) cùng kích thước để thay thế tạm; khi FBX đã có thì swap vào
+  mà KHÔNG đổi game logic. KHÔNG tự vẽ mesh phức tạp thay cho FBX.
+- KHÔNG convert GLB, KHÔNG dùng Python; FBXLoader nạp trực tiếp trong browser.
+- three.js r136 bản GLOBAL (không ES module) để đóng gói 1 file HTML.
+- Sản phẩm cuối: 1 file .html self-contained, mở bằng double-click.
+- Input di chuyển đọc từ bàn phím (keydown/keyup: WASD + phím mũi tên),
+  KHÔNG dựng UI joystick ảo/touch cho di chuyển.
+
+--------------------------------------------------------------------------------
+E. KHÔNG ĐƯỢC ĐỘNG TỚI (giữ nguyên như gốc)
+--------------------------------------------------------------------------------
+- Rule "đứng yên thì tự bắn quái gần nhất, di chuyển thì ngừng bắn".
+- Cơ chế spawn quái, nhặt XP, lên cấp bên trong 1 phòng (trừ phần bị ảnh
+  hưởng trực tiếp bởi việc chỉ còn 1 phòng — xem MOD-2, DEL-1).
+- Mọi mechanic khác ngoài các delta A/B/C ở trên.
+
+--------------------------------------------------------------------------------
+F. ĐÃ CHỐT VỚI USER (trước là câu hỏi mở, nay đã có quyết định)
+--------------------------------------------------------------------------------
+- Lên cấp: GIỮ màn chọn skill như gốc, bản đơn giản 3 card → xem [MOD-3].
+- Hero chết: Game Over overlay + nút "Chơi lại" reset toàn bộ phòng
+  → xem [ADD-2].
+- Wave: nhiều wave nối tiếp như gốc trong phòng duy nhất, dọn hết N wave
+  mới tính Thắng → xem [MOD-2], [ADD-1].
+- Sau khi thắng: có nút "Chơi lại" (dùng chung nút với ADD-2) → xem [ADD-1].
+- Input: bắt buộc hỗ trợ đồng thời cả WASD và phím mũi tên → xem [MOD-1].
+- Vật cản/rương trong phòng: giữ theo đúng những gì MECHANIC_ORIGINAL mô tả
+  quan sát được, KHÔNG thêm mới (không tạo ID riêng — áp dụng nguyên trạng
+  theo tài liệu gốc của Agent A).
+
+--------------------------------------------------------------------------------
+G. THAM SỐ MẶC ĐỊNH ĐÃ CHỐT (khởi điểm tạm — Agent A không đo được từ video
+   do FPS lấy mẫu quá thưa; user cho phép chốt tạm để Agent C code được;
+   Agent D SẼ TUNE lại các số này khi playtest, KHÔNG phải số cuối cùng)
+--------------------------------------------------------------------------------
+- Hero: speed = 35% chiều rộng phòng/giây | HP tối đa = 1000.
+- Đạn hero: speed = 250% chiều rộng phòng/giây | damage = 100/phát |
+  cadence bắn = 2.5 phát/giây (auto-fire khi đứng yên, xem rule ở mục E).
+- Slime xanh: HP = 400 | speed = 12% chiều rộng phòng/giây | damage chạm
+  hero = 80.
+- Bọ đỏ cận chiến: HP = 250 | speed = 30% chiều rộng phòng/giây | damage
+  đòn lao/đánh sau telegraph = 120.
+- Hoa quái tầm xa: HP = 300 | bắn 1 đạn / 1.5 giây | tốc độ đạn hoa quái =
+  60% chiều rộng phòng/giây | damage/đạn = 100.
+- Tim đỏ (hồi máu): 15% xác suất rơi khi 1 quái chết | tự nhặt khi hero
+  chạm vào (không cần bấm) | hồi 200 HP.
+- XP: mỗi quái chết = 1 XP | mốc XP cần để lên cấp lần lượt: 5 / 8 / 12 / 16
+  (Lv1->2 cần 5, Lv2->3 cần 8, Lv3->4 cần 12, Lv4->5 cần 16).
+| ĐÃ CHỐT VỚI USER (khởi điểm — Agent D tune lại, KHÔNG tự ý đổi số khi code
+lần đầu; đổi số thuộc phạm vi bug-fix/tune của Agent D, không phải Agent C)
+================================================================================

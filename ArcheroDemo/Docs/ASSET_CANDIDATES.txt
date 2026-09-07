@@ -1,0 +1,246 @@
+ỨNG VIÊN ASSET ĐỂ EXPORT FBX — ARCHERO 2 (AssetRipper dump)
+Nguồn: D:/Project/Archero2_Sources/Assets (KHÔNG có file nào bị sửa/xoá/tạo trong thư mục này)
+Ngày làm: 2026-09-07
+
+Mục lục
+1. HERO
+2. MONSTER_FLOWER
+3. MONSTER_BUG
+4. MONSTER_SLIME
+5. ARROW
+6. FLOOR
+7. CHEST/OBSTACLE
+Ghi chú
+
+================================================================
+1. HERO — nhân vật người chơi
+================================================================
+
+CẢNH BÁO QUAN TRỌNG: Không tìm thấy mesh nào khớp đúng mô tả "quả trứng/khối
+xanh nhạt đội mũ chóp đen, cầm cung". File Assets/Egg.prefab + Egg.png +
+Texture2D/EggIcon.png đã kiểm tra bằng mắt (mở ảnh) — đây là quả trứng thú
+cưng trang trí (tính năng "hatch pet egg" trong UI), KHÔNG phải nhân vật
+chính. Loại khỏi danh sách ứng viên.
+
+Các Hero_*.prefab (Alex, Thor, NeZha, Morty, Rick...) đều là nhân vật người
+lớn đầy đủ xương ngón tay/tóc (humanoid rig phức tạp), không giống hình khối
+trứng đơn giản trong video. Rất có thể nhân vật trong video là placeholder/
+prototype riêng của người dùng, KHÔNG có trong dump Archero 2 gốc.
+
+Ứng viên gần nhất (chức năng đúng vai trò "hero rig" nhưng hình dáng KHÁC mô
+tả — cần user tự xác nhận trong Unity Editor trước khi export):
+
+1) HeroKuLou.prefab — độ tin cậy: TRUNG BÌNH (đúng chức năng, sai hình dáng)
+   - Prefab: D:/Project/Archero2_Sources/Assets/HeroKuLou.prefab
+   - Mesh: Hero_KuLou_Skin.asset (guid 43368d252c3e46f4cba7d5bea739af23)
+   - Texture: Tex_Hero_KuLou.png
+   - Animator: có 2 component Animator, 1 dùng Controller "Jelly.controller"
+     (guid 1bf26625355ba344a9c700c11b877b38) — tên controller lạ (có thể là
+     controller mẫu dùng chung), cần xem trong Editor để biết state idle/
+     run/attack thật.
+   - Lý do: là 1 trong số ít Hero_* có Animator + AnimatorController gán sẵn
+     trong prefab (đa số Hero_*_Skin khác để m_Controller: {fileID: 0}, tức
+     controller gán runtime bên ngoài prefab). Nhưng đây là bộ xương skeleton
+     (đầu lâu), không phải trứng xanh.
+
+2) Hero_Alex_Skin.prefab — độ tin cậy: THẤP (chỉ để tham khảo hero mặc định)
+   - Prefab: D:/Project/Archero2_Sources/Assets/Hero_Alex_Skin.prefab
+   - SkinnedMeshRenderer + full humanoid bone (ngón tay, tóc) — không có
+     Animator/Controller gán sẵn trong file này.
+   - Không tìm được texture/tên khớp trực tiếp trong thời gian cho phép.
+
+=> ĐỀ XUẤT: mở Unity, search "Hero" hoặc "Egg" trong Project window, xem
+scene/prefab nào thực sự dùng trong gameplay (kéo vào Hierarchy xem hình).
+Nếu nhân vật video là placeholder tự vẽ ngoài dump này thì không cần export
+FBX từ Archero 2 cho vai trò Hero.
+
+================================================================
+2. MONSTER_FLOWER — hoa quái đứng yên bắn tầm xa
+================================================================
+
+1) ShiRenHua_Idle.prefab / ShiRenHua_Skin.prefab — độ tin cậy: CAO
+   - Prefab: D:/Project/Archero2_Sources/Assets/ShiRenHua_Skin.prefab
+     (và ShiRenHua_Idle/Attack/Hit/Death/Appear.prefab — mỗi trạng thái là
+     1 prefab riêng, không phải .anim tách rời)
+   - Mesh: ShiRenHua_Skin.asset (guid c65ef32cc23161a4a85f25d689a5cc85)
+   - Bone: Bone_Leaf01..15 (lá), Bone_Mouse_Up/Down, Bone_Tongue (miệng/lưỡi)
+     — đúng dạng "hoa có mặt"
+   - Texture: Tex_ShiRenHuaColor_Purple.png, Tex_ShiRenHuaColor_Red.png
+     (khớp mô tả "hồng/tím")
+   - Avatar: guid 653a7ac92ce77dd44a80d11a8442533a
+   - Tên "ShiRenHua" = pinyin "食人花" (hoa ăn thịt người) — đúng chủ đề.
+
+2) TaiYangHua.prefab / TaiYangHua2.prefab — độ tin cậy: TRUNG BÌNH
+   - Prefab: D:/Project/Archero2_Sources/Assets/TaiYangHua.prefab
+   - "TaiYangHua" pinyin = "hoa hướng dương" (Sun Blossom trong list có bản
+     tiếng Anh "Sun Blossom.prefab" song song — khả năng cùng 1 quái, khác
+     bộ khung xương/rig — có Sun Blossom@Idle/Attack/Die.prefab).
+   - Chưa mở kiểm tra chi tiết do giới hạn thời gian.
+
+3) MouthFlower.prefab / MoveFlower_Blue.prefab — độ tin cậy: THẤP
+   - Có thể là biến thể hoa di chuyển được (không đứng yên) — cần kiểm tra
+     lại nếu ShiRenHua/TaiYangHua không đúng.
+
+================================================================
+3. MONSTER_BUG — bọ/cua đỏ cận chiến, lao vào hero, vòng đỏ telegraph
+================================================================
+
+1) ShaChong_Skin.prefab / ShaChong_Idle.prefab — độ tin cậy: CAO
+   - Prefab: D:/Project/Archero2_Sources/Assets/ShaChong_Skin.prefab
+     (và ShaChong_Attack/Death/Hit/Idle/Run.prefab — mỗi state 1 prefab)
+   - Mesh: ShaChong_Skin.asset (guid 824d58f46be5c944ca5ff114bae8cae1)
+   - Bone: Bone_Spine01..09, Bone_Mouse01/02, Stone01..05 (có mảnh đá gắn
+     theo mình — hợp với dạng bọ/cua có mai đá)
+   - Texture: Tex_ShaChong_Color.png, Tex_ShaChong_1_Color.png,
+     Tex_ShaChong_Color_Pink.png — có bản màu đỏ/hồng
+   - Avatar: guid 36fb30773a0473b4a91ddf60c16feccc
+   - Có prefab "ShaChong_Run.prefab" — khớp hành vi "lao vào hero"
+   - Tên "ShaChong" pinyin = "sát trùng" (côn trùng giết chóc) — khớp vai trò
+
+2) BossShaChong.prefab — độ tin cậy: TRUNG BÌNH (bản boss, to hơn)
+
+3) Ladybug.prefab — độ tin cậy: THẤP
+   - Có Ladybug@Idle/Roll Attack/Die/Take Damage.prefab — bọ rùa, dáng tròn
+     đỏ đốm đen, có "Roll Attack" (lao vào) nhưng không phải "cua".
+
+================================================================
+4. MONSTER_SLIME — slime/thạch xanh lá/xanh dương đi chậm
+================================================================
+
+1) Slime_Skin.prefab / Slime_Idle.prefab — độ tin cậy: CAO
+   - Prefab: D:/Project/Archero2_Sources/Assets/Slime_Skin.prefab
+     (và Slime_Appear/Attack/Death/Hit/Idle/Move.prefab)
+   - Mesh: Mesh_Slime.asset (guid ee6712e33cddbb14aaa798c7dfd4637b)
+   - Bone: Bone_Body01/02, Bone_Eye, Bone_Mouth01/02, Bone_LeftHand/Foot,
+     Bone_WeiBa (đuôi) — đúng dạng thạch có tay chân đơn giản
+   - Texture: Slime.png, Tex_SlimeGreenEye_Color.png
+   - Avatar: guid 15d5372731e9c1645bb234556ced4a0f
+   - Có "Slime_Move.prefab" — khớp "đi chậm"
+
+2) SlimeSmall_Skin.prefab / SlimeSmall_Idle.prefab — độ tin cậy: CAO
+   - Biến thể nhỏ, cùng bộ state (Appear/Attack/Death/Green/Hit/Idle/Move)
+   - SlimeSmall_Green_*.prefab — bản xanh lá rõ ràng
+
+3) BossSlimeGreen.prefab — độ tin cậy: TRUNG BÌNH (bản boss to)
+
+================================================================
+5. ARROW — đạn/mũi tên của hero (vệt trắng)
+================================================================
+
+1) arrow_white.prefab — độ tin cậy: CAO (khớp trực tiếp "vệt trắng")
+   - Prefab: D:/Project/Archero2_Sources/Assets/arrow_white.prefab
+   - Có child "eff_1001_01_hit", "PunchSpikes" — hiệu ứng va chạm kèm theo
+   - Vài mesh dùng builtin Quad (guid 0000000000000000e000000000000000)
+     — phần thân là particle/sprite, không có mesh custom riêng để export
+     FBX (chủ yếu là hiệu ứng hạt, không phải mesh mũi tên 3D)
+
+2) arrow_normal.prefab — độ tin cậy: CAO (mesh 3D thật, có thể export FBX)
+   - Prefab: D:/Project/Archero2_Sources/Assets/arrow_normal.prefab
+   - Có MeshRenderer thật với mesh: guid 04dff68250b82be4891470d58aa97830
+     (Weapon_05_Jian.asset) và guid 51bf085add4c1ab47ab47d9f158d103e
+     (arrow01.asset) — đây mới là mesh mũi tên 3D thật sự
+   - Child: shadow, trail, head, tail, center — cấu trúc mũi tên chuẩn
+
+3) WoodArrow_01.prefab — độ tin cậy: TRUNG BÌNH
+   - Prefab: D:/Project/Archero2_Sources/Assets/WoodArrow_01.prefab
+   - Mesh: WoodArrow_01.asset, Crossbow.asset (guid 6ab9ea33762a8ea4f8503756c81b5296)
+   - Texture: Trap_WoodArrow_01_Tex.png
+   - Có Animator dùng Controller riêng (guid 790cdcc8e9024014eb119e514f089046)
+   - Đây là mũi tên của BẪY (Trap), không phải của hero — chỉ tham khảo hình
+     dáng mesh mũi tên gỗ.
+
+================================================================
+6. FLOOR — sàn phòng đá phiến + viền/cỏ/đảo bay quanh phòng
+================================================================
+
+1) Mesh_ShenMiaoRoom_13x25.prefab — độ tin cậy: CAO (sàn phòng chữ nhật dọc)
+   - Prefab: D:/Project/Archero2_Sources/Assets/Mesh_ShenMiaoRoom_13x25.prefab
+   - Con: Mesh_ShenMiaoRoom13x25_Bottom / _Ground / _Main (3 mesh ghép: đáy,
+     sàn, phần chính) — đúng mô tả "sàn đá phiến ghép mảng"
+   - Texture: 2DMap_ShenMiao_13x25_*.png, 2DMap_ShaMoShenMiao_13x25_*.png
+   - Tên "13x25" = kích thước phòng 13 ô ngang x 25 ô dọc → phòng CHỮ NHẬT
+     DỌC, khớp chính xác mô tả.
+   - Cùng bộ còn có Mesh_ShenMiaoRoom_13x17.prefab và _13x33.prefab (biến
+     thể phòng ngắn/dài hơn, cùng cấu trúc) — có thể export thêm để so sánh.
+
+2) ACheScene_Ground.asset + ACheScene_Sky.asset — độ tin cậy: TRUNG BÌNH
+   - Dùng trong: D:/Project/Archero2_Sources/Assets/MoWangACheRenderConfig.prefab
+   - Đây là scene nền cho màn hình hiển thị hero "MoWangAChe" (không chắc là
+     scene gameplay thật hay chỉ scene trưng bày nhân vật trong UI). Tên
+     "ACheScene" có thể liên quan chữ "Archero" như user đoán, nhưng ngữ
+     cảnh sử dụng (RenderConfig hiển thị hero) gợi ý đây là background cho
+     màn hình xem/đổi skin, không phải phòng chơi thật.
+
+3) Island02.asset / IslandGem.asset / MainIsland.asset — độ tin cậy: TRUNG BÌNH
+   - Dùng trong: D:/Project/ClaudeDemoGame3D không áp dụng — nguồn thật:
+     D:/Project/Archero2_Sources/Assets/MortyRenderConfig.prefab
+   - Đảo bay + đá quý — khớp mô tả "viền/cỏ/đảo bay quanh phòng", nhưng
+     cũng chỉ xuất hiện trong RenderConfig hiển thị hero Morty, chưa xác
+     nhận có dùng trong scene gameplay thật.
+
+4) GroundEarth_06 / _10 / _16.prefab — độ tin cậy: THẤP
+   - Tên gợi "sàn đất", chưa mở kiểm tra do giới hạn thời gian — có thể là
+     sàn cho map khác (không phải phòng đá phiến).
+
+================================================================
+7. CHEST/OBSTACLE — rương hoặc vật cản đá (ưu tiên thấp)
+================================================================
+
+Không tìm thấy rương 3D rõ ràng nào trong phòng chơi. Toàn bộ kết quả
+"chest/hezi/baoxiang" tìm được là SPRITE 2D cho UI phần thưởng (thư mục
+Assets/Sprite/, ví dụ Icon_MissionChest, bg_baoxiang...) — không export
+FBX được.
+
+1) Mesh_Hezi.asset — độ tin cậy: THẤP
+   - Dùng trong: D:/Project/Archero2_Sources/Assets/MrMeeseeks.prefab
+   - "Hezi" pinyin = hộp/vali — có thể là phụ kiện cầm tay của nhân vật
+     MrMeeseeks, không phải rương đặt trong phòng.
+
+2) PolyRoundRock01.asset — độ tin cậy: THẤP (vật cản đá, không phải rương)
+   - Đường dẫn: D:/Project/Archero2_Sources/Assets/Mesh/PolyRoundRock01.asset
+   - Đá tròn rời rạc, có thể dùng làm vật cản trang trí trong phòng.
+
+3) Box.prefab — LOẠI BỎ
+   - Đã mở kiểm tra: thực ra là NPC_NvZhanShen (nhân vật có cánh), không
+     liên quan hộp/rương — tên gây nhầm lẫn (false positive).
+
+================================================================
+Ghi chú
+================================================================
+
+Cấu trúc đặt tên nội bộ phát hiện được:
+- Nhân vật/quái vật lớn dùng tên pinyin tiếng Trung: ShiRenHua (hoa ăn thịt
+  người), ShaChong (côn trùng sát), TaiYangHua (hoa hướng dương), KuLou
+  (đầu lâu/xương), ShenMiao (đền/miếu — dùng cho tên phòng map).
+- Mỗi quái vật/hero thường có 1 file "_Skin.prefab" (mesh + rig đầy đủ,
+  Animator gán fileID: 0 — controller gán runtime) và nhiều file
+  "_<TênState>.prefab" riêng cho từng animation (Idle/Attack/Death/Hit/
+  Move/Appear/Run) — đây LÀ animation clip, nhưng AssetRipper xuất mỗi
+  state thành 1 prefab con riêng thay vì gộp vào 1 AnimatorController +
+  nhiều .anim dùng chung.
+- Mesh .asset và Material .mat của cùng 1 nhân vật thường KHÔNG nằm trong
+  Assets/Mesh/ mà nằm ngay tại Assets/ (root) — ví dụ ShiRenHua_Skin.asset,
+  Mesh_Slime.asset, ShaChong_Skin.asset đều ở root, không phải trong Mesh/.
+  File .meta ở root là cách tra guid → tên nhanh nhất (dùng lệnh:
+  grep -rl "guid: <guid>" --include="*.meta" .)
+- Tên phòng map dạng "Mesh_ShenMiaoRoom_<rộng>x<dài>" cho biết kích thước
+  phòng theo số ô lưới — số đầu (13) thường cố định, số sau thay đổi
+  (17/25/33) cho các độ dài phòng khác nhau.
+- Texture 2D của map thường đặt tên "2DMap_<TênMap>_<kíchthước>_<số thứ
+  tự>.png" trong Assets/Texture2D/.
+
+Cách mở nhanh trong Unity Project window (gõ vào ô Search, để All hoặc
+đúng loại Prefab/Model):
+- Hero: "HeroKuLou" hoặc "Hero_Alex_Skin" (xem trực tiếp shape trước khi
+  quyết định export)
+- Hoa quái: "ShiRenHua" hoặc "TaiYangHua"
+- Bọ/cua: "ShaChong"
+- Slime: "Slime_Skin" hoặc "SlimeSmall_Skin"
+- Mũi tên: "arrow_normal" (mesh thật) hoặc "arrow_white" (hiệu ứng)
+- Sàn phòng: "ShenMiaoRoom"
+- Đảo bay/nền trang trí: "Island0" hoặc "ACheScene"
+
+Giới hạn đã áp dụng: không đọc quá 30 file prefab đầy đủ (chỉ dùng grep để
+trích dòng liên quan m_Name/m_Mesh/Animator/guid, không Read nguyên file
+YAML dài hàng nghìn dòng). Đã mở 2 file ảnh (Egg.png, EggIcon.png) để xác
+minh — phát hiện Egg.prefab là false positive.
