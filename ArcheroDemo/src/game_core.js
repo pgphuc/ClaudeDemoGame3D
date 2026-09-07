@@ -18,21 +18,27 @@
 // ---------------------------------------------------------------------------
 var ROOM_W = 10;                 // 100% chiều rộng phòng = 10 world-unit
 var PCT    = ROOM_W / 100;       // 1% chiều rộng phòng
+var VIEW_H = ROOM_W * 16 / 9;    // chiều cao 1 màn hình 9:16 (≈17.78 world-unit)
 
 var CFG = {
-  // --- Phòng (MOD-5: đúng 1 màn hình, tỉ lệ dọc 9:16, camera cố định) ---
+  // --- Phòng (MOD-5 v2: rộng 1 màn hình, CAO 2 màn hình 9:16) ---
   room: {
-    w: ROOM_W,                   // chiều rộng phòng
-    h: ROOM_W * 16 / 9,          // chiều cao phòng (9:16)
+    w: ROOM_W,                   // chiều rộng phòng (= bề ngang 1 màn hình)
+    h: VIEW_H * 2,               // chiều cao phòng = 2 màn hình (≈35.56)
     wallH: 0.9,                  // chiều cao tường trang trí
     margin: 0.55                 // biên trong: tâm entity không vượt quá
   },
 
-  // --- Camera top-down nghiêng nhẹ, CỐ ĐỊNH (MOD-5) ---
+  // --- Camera top-down nghiêng nhẹ, FOLLOW hero theo trục z (MOD-5 v2) ---
   camera: {
     tiltDeg: 30,                 // độ nghiêng khỏi phương thẳng đứng
     dist: 40,                    // khoảng cách (ortho: chỉ ảnh hưởng near/far)
-    fitMargin: 1.06              // hệ số nới khung ngắm
+    fitMargin: 1.06,             // hệ số nới khung ngắm (theo chiều ngang phòng)
+    followLerp: 8,               // tốc độ bám mượt theo z (1/giây); 0 = bám tức thì
+    // [MOD-6 v2] Chừa thêm khoảng trống ở MÉP TRÊN khung nhìn đúng bằng chiều
+    // cao dải HUD (đo trực tiếp từ DOM #hudTop) + hudPadExtra px cho thoáng, để
+    // hero đứng sát đầu TRÊN phòng không bị HUD đè. Xem hudPadZ()/camLimitTopZ().
+    hudPadExtra: 30              // px cộng thêm (chừa chỗ cho thanh HP trên đầu hero)
   },
 
   // --- Hero (mục G) ---
@@ -103,12 +109,35 @@ var CFG = {
     hpBonus: 300                 // +300 HP tối đa (và hồi đầy máu)
   },
 
+  // --- Juice tối thiểu [ADD-3] (Agent D vòng D-4): số damage đã có sẵn
+  // (xem addText/damageEnemy/damageHero), phần dưới chỉ phục vụ trail/
+  // telegraph-pulse/hit-flash mới thêm. KHÔNG đổi fireInterval/telegraph gốc.
+  juice: {
+    trailInterval: 0.045,  // giây giữa 2 lần rơi vệt khi hero đang di chuyển
+    trailLife: 0.3,        // vệt mờ dần trong ~0.3s                 [ADD-3(b)]
+    windup: 0.3,           // hoa quái phình ~0.3s trước khi bắn      [ADD-3(c)]
+    bugPulse: 0.12         // biên độ phình thân bọ đỏ lúc telegraph  [ADD-3(c)]
+  },
+
+  // --- [VÒNG D-3b] Hệ số scale THÊM cho từng asset FBX (nhân sau khi đã
+  // chuẩn hoá theo chiều cao — xem normalizeToHeight()/normalizeToSize()) để
+  // Agent D/user tune độ lớn thị giác mà KHÔNG đổi hitbox va chạm (CFG.hero/
+  // slime/bug/flower.radius KHÔNG đổi). 1 = giữ nguyên kích thước sau chuẩn
+  // hoá theo chiều cao.
+  assetScale: {
+    hero: 1, monster_flower: 1,
+    monster_bug: 2.16,   // [D-3b→D-3c] bug bbox.h chuẩn hoá = 0.416 (ASSET_SIZE) quá
+                          // nhỏ cạnh slime; 0.416*2.16≈0.9 unit — user yêu cầu ~0.9
+    monster_slime: 1, arrow: 1
+  },
+
   // --- Màu primitive fallback (khi chưa có FBX) ---
   color: {
-    floorA: 0x3d4a5c, floorB: 0x34404f, wall: 0x5c6b80, wallEdge: 0x8fa3bd,
+    floorA: 0x3d4a5c, floorB: 0x34404f, wall: 0x8b90a9, wallEdge: 0x8fa3bd,  // [D-3b] wall = xám đá gần viền gạch floor.png
     hero: 0x9fd8ff, heroHat: 0x1b1f27,
     slime: 0x56d962, bug: 0xe0453a, flowerStem: 0x3f8f4a, flowerHead: 0xff77c2,
-    arrow: 0xfff4d0, enemyBullet: 0xff9a4d, heart: 0xff4d63, ring: 0xff2f2f
+    arrow: 0xffe680, enemyBullet: 0xff9a4d, heart: 0xff4d63, ring: 0xff2f2f,  // [D-3c] arrow vàng nhạt hơn, dễ thấy
+    trail: 0x9fd8ff, hitFlash: 0xffffff                              // [ADD-3]
   }
 };
 
@@ -126,33 +155,157 @@ function $(id) { return document.getElementById(id); }
 //    Game logic KHÔNG biết mesh đến từ đâu: chỉ gọi Assets.make(key).
 //    ASSET_MAP khớp .claude/pipeline/scripts/embed_fbx.js
 // ---------------------------------------------------------------------------
-var ASSET_KEYS = ['hero', 'monster_flower', 'monster_bug', 'monster_slime', 'arrow', 'floor', 'wall'];
+// [VÒNG D-3b] BỎ 'floor' khỏi ASSET_KEYS: Mesh_ShenMiaoRoom_13x25.fbx là 1
+// tranh nguyên phòng KHÔNG lát được (xem BUILD_HANDOFF nhật ký D-3b) — sàn
+// quay lại plane primitive với texture crop từ floor.png (Prim.floor(),
+// makeFloorCropTexture()), KHÔNG qua AssetLoader nữa.
+var ASSET_KEYS = ['hero', 'monster_flower', 'monster_bug', 'monster_slime', 'arrow', 'wall'];
 
-// Kích thước chuẩn hoá (đường kính XZ, chiều cao Y) để scale FBX về đúng cỡ.
+// Kích thước chuẩn hoá dùng làm mục tiêu.
+// [VÒNG D-3b] hero/monster_*: CHỈ còn dùng .h (chuẩn hoá theo CHIỀU CAO qua
+// normalizeToHeight() — bỏ ràng buộc đường kính .d vì bind-pose gốc của rig
+// khiến trục ngang bị chọn làm giới hạn, ra model nhỏ hơn hẳn mục tiêu, xem
+// nhật ký D-3). .d giữ lại chỉ để tham khảo/tài liệu, KHÔNG còn dùng để tính
+// scale các key này nữa. arrow/wall vẫn dùng normalizeToSize (d+h) như cũ.
 var ASSET_SIZE = {
   hero:           { d: CFG.hero.radius * 2,   h: CFG.hero.height },
   monster_slime:  { d: CFG.slime.radius * 2,  h: CFG.slime.radius * 1.4 },
   monster_bug:    { d: CFG.bug.radius * 2,    h: CFG.bug.radius * 1.3 },
   monster_flower: { d: CFG.flower.radius * 2, h: CFG.flower.radius * 3.0 },
-  arrow:          { d: CFG.arrow.radius * 2,  h: CFG.arrow.len },
-  floor:          { d: CFG.room.w,            h: 0.1 },
+  // [D-3c] arrow_normal.fbx: bbox thô của "child" (thân mũi tên thật, sau khi
+  // loại "shadow" decal phẳng + "Public_Weapon05" là CÂY CUNG riêng — xem
+  // hideArrowFxChildren()) có trục DÀI nằm ở Z (~115 so với X/Y ~28), KHÔNG
+  // phải Y như hero/quái -> dùng normalizeToLengthZ() riêng, ASSET_SIZE.arrow.h
+  // giờ nghĩa là "chiều dài dọc Z" (≈1.0 unit theo yêu cầu), .d không dùng.
+  arrow:          { d: CFG.arrow.radius * 2,  h: 1.0 },
   wall:           { d: 1,                     h: CFG.room.wallH }
 };
+var HEIGHT_ONLY_KEYS = { hero: true, monster_flower: true, monster_bug: true, monster_slime: true };
+
+// [VÒNG D-3] Offset xoay (radian) cộng thêm cho model FBX khi hướng "forward"
+// gốc của mesh không khớp quy ước game: rotation.y = 0 => quay mặt về +Z (xem
+// atan2(dx,dz) ở updateHero()/shootArrow()/updateBug()). 0 = không cần offset.
+// Xác định bằng vòng lặp chụp ảnh (r3_after_*), KHÔNG đổi logic xoay gốc.
+var ASSET_ROT_OFFSET = {
+  hero: 0,
+  monster_flower: Math.PI / 2,   // [D-3b] xác nhận qua gallery: miệng hoa quái
+                                  // khớp +Z (hướng camera) ở rotation.y=90°,
+                                  // KHÔNG phải 0° như hero — xem BUILD_HANDOFF §6.
+  monster_bug: 0,                // [D-3b] KHÔNG xác định được — rig cuộn tròn
+                                  // (bind-pose không animation), không có chi
+                                  // tiết đầu/đuôi rõ để soi hướng, xem §6.
+  monster_slime: 0,              // [D-3b] hình tinh thể, KHÔNG có mặt/chi tiết
+                                  // định hướng rõ — offset không áp dụng được.
+  arrow: 0                       // [D-3c] trục dài "child" đã nằm sẵn ở Z (xem
+                                  // ASSET_SIZE.arrow) — không cần xoay Y thêm.
+};
+
+// [D-3c] Offset xoay quanh trục X (radian) — RIÊNG cho model bind-pose bị
+// "đổ/nghiêng" theo trục dọc (rotation.y không sửa được việc này, chỉ xoay
+// quanh trục đứng). Xác định bằng vòng lặp chụp ảnh so sánh vài góc X, xem
+// BUILD_HANDOFF §6. 0 = không cần.
+var ASSET_ROT_OFFSET_X = {
+  monster_flower: Math.PI / 2    // [D-3c] so sánh -90/-180/0/+90 qua ảnh: +90°
+                                  // là góc DUY NHẤT lộ rõ miệng/răng hoa quái
+                                  // (mặt trước thật) hướng ra ngoài — xem §6.
+};
+
+// 1x1 PNG trong suốt — dùng làm texture "rỗng" khi model tham chiếu texture
+// ngoài mà ta KHÔNG có file thay thế (vd arrow), để tránh loader cố tải một
+// đường dẫn Windows tuyệt đối không tồn tại trong môi trường trình duyệt.
+var BLANK_TEX_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+/* [VÒNG D-3] LoadingManager riêng cho 1 key: FBXLoader tự xử lý texture ĐÃ
+   NHÚNG (Content -> blob:/data: URL) bình thường; mọi URL tham chiếu NGOÀI
+   (không phải blob:/data:) bị thay bằng texture đã nhúng sẵn của game
+   (window.FBX_TEX[key], base64 từ embed_fbx.js) hoặc BLANK_TEX_URI nếu không
+   có. */
+function makeAssetLoadingManager(texUri) {
+  var mgr = new THREE.LoadingManager();
+  mgr.setURLModifier(function (url) {
+    if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) return url;
+    return texUri || BLANK_TEX_URI;
+  });
+  return mgr;
+}
+
+function makeTextureFromDataURI(uri) {
+  var tex = new THREE.TextureLoader().load(uri);
+  tex.encoding = THREE.sRGBEncoding;   // texture màu (albedo) xuất từ Unity
+  return tex;
+}
+
+/* Model KHÔNG có node Texture/Video nào trong FBX (hero, 3 quái) -> material
+   parse ra map=null dù ta có PNG thật. Gán trực tiếp làm lưới an toàn. */
+function applyTextureFallback(root, tex) {
+  if (!tex) return;
+  root.traverse(function (n) {
+    if (!n.isMesh || !n.material) return;
+    var mats = Array.isArray(n.material) ? n.material : [n.material];
+    for (var i = 0; i < mats.length; i++) {
+      var m = mats[i];
+      if (m && !m.map) { m.map = tex; m.needsUpdate = true; }
+    }
+  });
+}
+
+/* [VÒNG D-3/D-3c] arrow_normal.fbx có child "shadow" (decal phẳng RỘNG dưới
+   chân, xem khảo sát), "trail", và "Public_Weapon05" (CÂY CUNG — 1 prop riêng
+   đóng gói chung file, KHÔNG phải mũi tên) — chỉ giữ lại "child" (thân mũi
+   tên thật). [D-3c] ĐỔI từ set visible=false sang GỠ HẲN khỏi cây (remove):
+   THREE.Box3.setFromObject() KHÔNG quan tâm cờ .visible, vẫn tính cả mesh ẩn
+   vào bbox — đây là NGUYÊN NHÂN mũi tên bị normalize dẹt (h=0.093 thay vì
+   mục tiêu) ở vòng D-3: bbox bị "shadow" 180x180 (rất rộng, rất phẳng) chi
+   phối. Phải gỡ TRƯỚC khi đo bbox để chuẩn hoá, không phải sau. */
+function hideArrowFxChildren(root) {
+  var re = /trail|shadow|eff|mask|weapon/i;
+  var toRemove = [], hidden = [];
+  root.traverse(function (n) {
+    if (n !== root && re.test(n.name || '')) toRemove.push(n);
+  });
+  toRemove.forEach(function (n) { if (n.parent) { n.parent.remove(n); hidden.push(n.name); } });
+  return hidden;
+}
+
+/* [VÒNG D-3c] Mũi tên gần như vô hình khi bay (dẹt, tối, không PNG). Ép hẳn
+   MeshBasicMaterial màu vàng nhạt KHÔNG phụ thuộc ánh sáng (luôn thấy rõ dù
+   bối cảnh sáng/tối) thay vì chỉ sửa màu khi tối như bản D-3 cũ. */
+function forceArrowMaterial(root) {
+  var m = new THREE.MeshBasicMaterial({ color: CFG.color.arrow });
+  root.traverse(function (n) {
+    if (n.isMesh) { n.material = m; }
+  });
+}
 
 var Assets = {
-  raw: {},        // key -> { root: Object3D, clips: {idle,run,attack} }
+  raw: {},        // key -> { buf, mgr, tex, hasRig, root, clips }
   ready: false,
 
   load: function () {
     var FBX = (typeof window !== 'undefined' && window.FBX) ? window.FBX : {};
+    var TEX = (typeof window !== 'undefined' && window.FBX_TEX) ? window.FBX_TEX : {};
     for (var i = 0; i < ASSET_KEYS.length; i++) {
       var k = ASSET_KEYS[i];
       if (!FBX[k]) continue;                       // chưa có FBX -> primitive
       try {
         var buf = b64ToArrayBuffer(FBX[k]);
-        var root = new THREE.FBXLoader().parse(buf, '');
-        normalizeToSize(root, ASSET_SIZE[k]);
-        this.raw[k] = { root: root, clips: pickClips(root.animations) };
+        var texUri = TEX[k] || null;
+        var tex = texUri ? makeTextureFromDataURI(texUri) : null;
+        var mgr = makeAssetLoadingManager(texUri);
+        var root = new THREE.FBXLoader(mgr).parse(buf, '');
+        var hasRig = false;
+        root.traverse(function (n) { if (n.isSkinnedMesh) hasRig = true; });
+        applyTextureFallback(root, tex);
+        // [D-3c] arrow: GỠ shadow/trail/weapon + ép material TRƯỚC khi đo bbox
+        // chuẩn hoá (bbox phải phản ánh đúng phần còn lại sẽ hiển thị).
+        if (k === 'arrow') { hideArrowFxChildren(root); forceArrowMaterial(root); }
+        if (k === 'arrow') normalizeToLengthZ(root, ASSET_SIZE[k].h, CFG.assetScale[k]);
+        else if (HEIGHT_ONLY_KEYS[k]) normalizeToHeight(root, ASSET_SIZE[k].h, CFG.assetScale[k]);
+        else normalizeToSize(root, ASSET_SIZE[k], CFG.assetScale[k]);
+        if (ASSET_ROT_OFFSET_X[k]) root.rotation.x += ASSET_ROT_OFFSET_X[k];
+        if (ASSET_ROT_OFFSET[k]) root.rotation.y += ASSET_ROT_OFFSET[k];
+        if (ASSET_ROT_OFFSET_X[k]) realignAfterRotation(root);
+        this.raw[k] = { buf: buf, mgr: mgr, tex: tex, hasRig: hasRig, root: root, clips: pickClips(root.animations) };
       } catch (e) {
         console.warn('[AssetLoader] Parse FBX lỗi cho "' + k + '":', e);
       }
@@ -162,14 +315,36 @@ var Assets = {
 
   has: function (k) { return !!this.raw[k]; },
 
-  /* Trả về Object3D dùng được ngay (clone FBX hoặc primitive cùng kích thước). */
+  /* Trả về Object3D dùng được ngay (clone FBX hoặc primitive cùng kích thước).
+     [VÒNG D-3] Entity CÓ rig (SkinnedMesh: hero + 3 quái) được RE-PARSE riêng
+     từ buffer đã cache (KHÔNG .clone(true)) để mỗi entity có bộ xương độc lập
+     -> animation của con này không ảnh hưởng con khác. Lý do: three r136 dùng
+     trong lib KHÔNG có THREE.SkeletonUtils để clone-rebind đúng skeleton; parse
+     lại rẻ hơn viết & bảo trì 1 bản clone thủ công, và chỉ tốn lúc SPAWN (không
+     phải mỗi frame). Entity KHÔNG rig (arrow) vẫn clone(true) như cũ (rẻ, an
+     toàn, không cần animation độc lập). */
   make: function (k) {
-    if (this.raw[k]) {
-      var o = this.raw[k].root.clone(true);
+    var r = this.raw[k];
+    if (r) {
+      var o;
+      if (r.hasRig) {
+        o = new THREE.FBXLoader(r.mgr).parse(r.buf, '');
+        applyTextureFallback(o, r.tex);
+        if (HEIGHT_ONLY_KEYS[k]) normalizeToHeight(o, ASSET_SIZE[k].h, CFG.assetScale[k]);
+        else normalizeToSize(o, ASSET_SIZE[k], CFG.assetScale[k]);
+        if (ASSET_ROT_OFFSET_X[k]) o.rotation.x += ASSET_ROT_OFFSET_X[k];
+        if (ASSET_ROT_OFFSET[k]) o.rotation.y += ASSET_ROT_OFFSET[k];
+        if (ASSET_ROT_OFFSET_X[k]) realignAfterRotation(o);
+      } else {
+        o = r.root.clone(true);
+      }
       o.traverse(function (n) { if (n.isMesh) { n.castShadow = !NOSHADOW; n.receiveShadow = false; } });
       // Bọc vào Group: game logic set position trên Group, offset canh tâm của
       // FBX nằm ở object con nên không bị ghi đè.
-      var g = new THREE.Group(); g.add(o); return g;
+      var g = new THREE.Group(); g.add(o);
+      g.userData.fbxRoot = o;              // [VÒNG D-3] root thật để bind AnimationMixer
+      g.userData.fbxClips = r.clips;       // {idle,run,attack} AnimationClip hoặc null — dùng chung cho mọi entity cùng key (an toàn: clip bind theo TÊN node, không theo instance)
+      return g;
     }
     return Prim[k]();
   },
@@ -183,13 +358,16 @@ function b64ToArrayBuffer(b64) {
   return buf;
 }
 
-/* Scale FBX về kích thước CFG bằng Box3, đặt gốc toạ độ ở đáy-tâm. */
-function normalizeToSize(root, size) {
+/* Scale FBX về kích thước CFG (đường kính XZ + chiều cao Y) bằng Box3, đặt
+   gốc toạ độ ở đáy-tâm. extraScale: hệ số nhân thêm (CFG.assetScale[key]),
+   mặc định 1. [VÒNG D-3b] chỉ còn dùng cho arrow/wall — hero/monster_* dùng
+   normalizeToHeight() bên dưới. */
+function normalizeToSize(root, size, extraScale) {
   if (!size) return;
   var box = new THREE.Box3().setFromObject(root);
   var s = new THREE.Vector3(); box.getSize(s);
   if (!isFinite(s.x) || s.x <= 0 || s.y <= 0 || s.z <= 0) return;
-  var sc = Math.min(size.d / Math.max(s.x, s.z), size.h / s.y);
+  var sc = Math.min(size.d / Math.max(s.x, s.z), size.h / s.y) * (extraScale || 1);
   if (!isFinite(sc) || sc <= 0) return;
   root.scale.setScalar(sc);
   box.setFromObject(root);
@@ -197,15 +375,66 @@ function normalizeToSize(root, size) {
   root.position.x -= c.x; root.position.z -= c.z; root.position.y -= box.min.y;
 }
 
-/* Lấy AnimationClip theo tên chứa idle/run/attack (không phân biệt hoa thường). */
+/* [VÒNG D-3b] Scale FBX CHỈ theo CHIỀU CAO Y (bỏ ràng buộc đường kính XZ) —
+   dùng cho hero/monster_* vì bind-pose gốc của rig có tỉ lệ ngang/dọc khác
+   primitive cũ, ràng buộc đường kính khiến model nhỏ hơn hẳn mục tiêu (xem
+   nhật ký D-3). extraScale = CFG.assetScale[key] để user tune thêm sau mà
+   KHÔNG đổi hitbox (CFG.*.radius). */
+function normalizeToHeight(root, targetH, extraScale) {
+  if (!targetH) return;
+  var box = new THREE.Box3().setFromObject(root);
+  var s = new THREE.Vector3(); box.getSize(s);
+  if (!isFinite(s.y) || s.y <= 0) return;
+  var sc = (targetH / s.y) * (extraScale || 1);
+  if (!isFinite(sc) || sc <= 0) return;
+  root.scale.setScalar(sc);
+  box.setFromObject(root);
+  var c = new THREE.Vector3(); box.getCenter(c);
+  root.position.x -= c.x; root.position.z -= c.z; root.position.y -= box.min.y;
+}
+
+/* [VÒNG D-3c] Scale FBX theo CHIỀU DÀI dọc trục Z (không phải Y) — dùng riêng
+   cho arrow: "child" (thân mũi tên thật, sau khi gỡ shadow/trail/weapon) có
+   trục dài nằm ở Z, không phải Y như hero/quái đứng thẳng. */
+function normalizeToLengthZ(root, targetLen, extraScale) {
+  if (!targetLen) return;
+  var box = new THREE.Box3().setFromObject(root);
+  var s = new THREE.Vector3(); box.getSize(s);
+  if (!isFinite(s.z) || s.z <= 0) return;
+  var sc = (targetLen / s.z) * (extraScale || 1);
+  if (!isFinite(sc) || sc <= 0) return;
+  root.scale.setScalar(sc);
+  box.setFromObject(root);
+  var c = new THREE.Vector3(); box.getCenter(c);
+  root.position.x -= c.x; root.position.z -= c.z; root.position.y -= box.min.y;
+}
+
+/* [VÒNG D-3c] normalizeTo*() canh giữa/đáy DỰA TRÊN bbox TRƯỚC khi xoay
+   ASSET_ROT_OFFSET_X — xoay quanh X làm đáy/tâm thật sự lệch đi. Gọi lại sau
+   khi xoay xong (X rồi Y) để đáy luôn ở y=0, tâm X/Z luôn ở 0 — như primitive
+   cũ (entity đứng đúng trên sàn). */
+function realignAfterRotation(root) {
+  var box = new THREE.Box3().setFromObject(root);
+  if (!isFinite(box.min.y)) return;
+  var c = new THREE.Vector3(); box.getCenter(c);
+  root.position.x -= c.x; root.position.z -= c.z; root.position.y -= box.min.y;
+}
+
+/* Lấy AnimationClip theo tên (không phân biệt hoa thường).
+   [VÒNG D-3] HeroKuLou KHÔNG có clip tên "idle"/"run"/"walk" thật (xem
+   BUILD_HANDOFF §6) — mở rộng: idle nhận thêm "hold" (đứng cầm cung); attack
+   ưu tiên "firehold" (khớp trước để không lẫn "Hold" thường vào idle), rồi
+   "attack"/"fire"/"shoot". */
 function pickClips(anims) {
   var out = { idle: null, run: null, attack: null };
   if (!anims) return out;
   for (var i = 0; i < anims.length; i++) {
     var nm = (anims[i].name || '').toLowerCase();
-    if (!out.idle && nm.indexOf('idle') >= 0) out.idle = anims[i];
+    var isAttack = nm.indexOf('firehold') >= 0 || nm.indexOf('attack') >= 0 ||
+                   nm.indexOf('fire') >= 0 || nm.indexOf('shoot') >= 0;
+    if (!out.attack && isAttack) out.attack = anims[i];
     if (!out.run && (nm.indexOf('run') >= 0 || nm.indexOf('walk') >= 0)) out.run = anims[i];
-    if (!out.attack && nm.indexOf('attack') >= 0) out.attack = anims[i];
+    if (!out.idle && !isAttack && (nm.indexOf('idle') >= 0 || nm.indexOf('hold') >= 0)) out.idle = anims[i];
   }
   return out;
 }
@@ -232,6 +461,36 @@ function capsuleGroup(r, mid, m) {
   var a = meshOf(new THREE.SphereGeometry(r, 14, 10), m); a.position.y = mid / 2; g.add(a);
   var b = meshOf(new THREE.SphereGeometry(r, 14, 10), m); b.position.y = -mid / 2; g.add(b);
   return g;
+}
+
+/* [ADD-3](d) Clone material riêng cho MỖI thực thể (hero/quái). mat() cache
+   material theo màu -> nhiều quái cùng loại đang SHARE 1 material instance;
+   nếu sửa emissive trực tiếp trên đó thì mọi quái cùng loại sẽ nháy theo.
+   Clone 1 lần lúc spawn (KHÔNG phải mỗi frame) -> mỗi thực thể có material
+   riêng, hit-flash chỉ ảnh hưởng đúng thực thể đó. */
+function cloneEntityMaterials(root) {
+  var mats = [];
+  root.traverse(function (n) {
+    if (!n.isMesh || !n.material) return;
+    if (Array.isArray(n.material)) {
+      n.material = n.material.map(function (m) { return m.clone(); });
+      for (var i = 0; i < n.material.length; i++) mats.push(n.material[i]);
+    } else {
+      n.material = n.material.clone();
+      mats.push(n.material);
+    }
+  });
+  var base = [];
+  for (var j = 0; j < mats.length; j++) base.push(mats[j].emissive ? mats[j].emissive.clone() : null);
+  return { mats: mats, base: base };
+}
+function applyHitFlash(fx) {
+  if (!fx) return;
+  for (var i = 0; i < fx.mats.length; i++) if (fx.mats[i].emissive) fx.mats[i].emissive.setHex(CFG.color.hitFlash);
+}
+function clearHitFlash(fx) {
+  if (!fx) return;
+  for (var i = 0; i < fx.mats.length; i++) if (fx.mats[i].emissive && fx.base[i]) fx.mats[i].emissive.copy(fx.base[i]);
 }
 
 var Prim = {
@@ -281,10 +540,12 @@ var Prim = {
     tip.rotation.x = Math.PI / 2; tip.position.z = CFG.arrow.len * 0.72; g.add(tip);
     return g;
   },
-  // Sàn: plane xám-xanh lát ô (texture canvas 2D)
+  // Sàn: plane — texture = vùng sân đá crop từ floor.png nếu có [VÒNG D-3b],
+  // không có thì lát ô canvas 2D như v1 (checkerTexture()).
   floor: function () {
     var geo = new THREE.PlaneGeometry(CFG.room.w, CFG.room.h);
-    var m = new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.95 });
+    var map = makeFloorCropTexture() || checkerTexture();
+    var m = new THREE.MeshStandardMaterial({ map: map, roughness: 0.95 });
     var p = new THREE.Mesh(geo, m);
     p.rotation.x = -Math.PI / 2; p.receiveShadow = !NOSHADOW;
     return p;
@@ -293,7 +554,8 @@ var Prim = {
   wall: function () { return new THREE.Group(); }
 };
 
-/* Lưới ô màu runtime bằng canvas 2D (nhẹ, không cần file ảnh). */
+/* Lưới ô màu runtime bằng canvas 2D (nhẹ, không cần file ảnh) — fallback khi
+   KHÔNG có floor.png. */
 var _checker = null;
 function checkerTexture() {
   if (_checker) return _checker;
@@ -309,12 +571,49 @@ function checkerTexture() {
   _checker = t; return t;
 }
 
+/* [VÒNG D-3b/D-3c] Sàn FBX (Mesh_ShenMiaoRoom_13x25.fbx) là 1 TRANH nguyên
+   khối (sân đá + viền cây/đá xung quanh) KHÔNG lát được — bỏ hẳn, quay lại
+   plane primitive nhưng lấy TEXTURE = vùng sân đá crop từ floor.png (KHÔNG
+   lấy viền gạch/trang trí) thay cho lưới ô 2D cũ. Toạ độ crop (px, gốc
+   trên-trái, ảnh gốc 1024x2048): D-3b dùng x280-760/y760-1400 nhưng còn lộ
+   vệt cam (viền sỏi) ở mép trên/dưới tile -> [D-3c] THU HẸP vào trong: x
+   300-740, y 790-1370 (vùng 440x580), + đổi RepeatWrapping -> MirroredRepeat
+   Wrapping (mỗi tile kế tiếp lật gương) để giấu đường nối giữa các tile.
+   repeat.x = room.w/5 = 2, repeat.y = room.h/5 ≈ 7.11 (~7). Ảnh load ASYNC
+   (Image.onload) nên vài frame đầu canvas có thể rỗng — texture.needsUpdate
+   khi vẽ xong. */
+var FLOOR_CROP = { x: 300, y: 790, w: 440, h: 580 };
+var _floorCropTex = null;
+function makeFloorCropTexture() {
+  if (_floorCropTex !== null) return _floorCropTex || null;
+  var TEX = (typeof window !== 'undefined' && window.FBX_TEX) ? window.FBX_TEX : {};
+  var uri = TEX.floor;
+  if (!uri) { _floorCropTex = false; return null; }
+  var canvas = document.createElement('canvas');
+  canvas.width = FLOOR_CROP.w; canvas.height = FLOOR_CROP.h;
+  var ctx = canvas.getContext('2d');
+  var tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.MirroredRepeatWrapping;   // [D-3c] giấu đường nối tile
+  tex.repeat.set(CFG.room.w / 5, CFG.room.h / 5);
+  tex.encoding = THREE.sRGBEncoding;
+  var img = new Image();
+  img.onload = function () {
+    ctx.drawImage(img, FLOOR_CROP.x, FLOOR_CROP.y, FLOOR_CROP.w, FLOOR_CROP.h, 0, 0, canvas.width, canvas.height);
+    tex.needsUpdate = true;
+  };
+  img.src = uri;
+  _floorCropTex = tex;
+  return tex;
+}
+
 // ---------------------------------------------------------------------------
 // 3. Scene / Camera / Ánh sáng
 // ---------------------------------------------------------------------------
 var NOSHADOW = (typeof window !== 'undefined' && window.__NOSHADOW === true);
 var renderer, scene, camera, stageEl, canvasEl;
 var groupEntities, groupFx;
+var dirLight, dirTarget;         // đèn chính + target (dịch theo camera)
+var camZ = 0;                    // tâm khung nhìn theo trục z (MOD-5 v2)
 
 function initThree() {
   canvasEl = $('cv'); stageEl = $('stage');
@@ -328,29 +627,33 @@ function initThree() {
   // Không dùng fog: camera ortho đặt xa (CFG.camera.dist) nên fog theo khoảng
   // cách sẽ nhuộm đen toàn phòng.
 
-  // [MOD-5] Camera top-down nghiêng nhẹ CỐ ĐỊNH — thấy trọn phòng, không follow.
+  // [MOD-5 v2] Camera top-down nghiêng nhẹ, khung ngang = bề ngang phòng,
+  // FOLLOW hero theo trục z (xem updateCamera).
   camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
-  var t = CFG.camera.tiltDeg * Math.PI / 180;
-  camera.position.set(0, CFG.camera.dist * Math.cos(t), CFG.camera.dist * Math.sin(t));
-  camera.lookAt(0, 0, 0);
+  camZ = 0;
 
   var hemi = new THREE.HemisphereLight(0xbcd6ff, 0x2a3040, 0.95);
   scene.add(hemi);
-  var dir = new THREE.DirectionalLight(0xffffff, 0.85);
-  dir.position.set(CFG.room.w * 0.6, CFG.room.h * 0.9, CFG.room.h * 0.35);
+  dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+  dirTarget = new THREE.Object3D();
+  scene.add(dirTarget);
+  dirLight.target = dirTarget;
   if (!NOSHADOW) {
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(1024, 1024);
-    var cam = dir.shadow.camera;
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(1024, 1024);
+    // Frustum shadow chỉ cần phủ VÙNG ĐANG NHÌN (1 màn hình), vì cả đèn lẫn
+    // target đều dịch theo camera trong updateCamera().
+    var cam = dirLight.shadow.camera;
     cam.left = -CFG.room.w; cam.right = CFG.room.w;
-    cam.top = CFG.room.h * 0.7; cam.bottom = -CFG.room.h * 0.7;
-    cam.near = 1; cam.far = CFG.room.h * 3;
+    cam.top = VIEW_H * 0.8; cam.bottom = -VIEW_H * 0.8;
+    cam.near = 1; cam.far = VIEW_H * 4;
     cam.updateProjectionMatrix();
   }
-  scene.add(dir);
+  scene.add(dirLight);
 
   groupEntities = new THREE.Group(); scene.add(groupEntities);
   groupFx = new THREE.Group(); scene.add(groupFx);
+  initTrailPool();                 // [ADD-3](b) pool vệt di chuyển của hero
 
   buildRoom();
   resize();
@@ -358,7 +661,7 @@ function initThree() {
 }
 
 function buildRoom() {
-  scene.add(Assets.make('floor'));
+  scene.add(Assets.make('floor'));   // [VÒNG D-3b] luôn primitive plane (crop texture hoặc checker)
 
   // Tường viền quanh phòng (box + gờ sáng)
   var W = CFG.room.w, H = CFG.room.h, th = 0.35, hh = CFG.room.wallH;
@@ -376,7 +679,9 @@ function buildRoom() {
   slab(th, H,  W / 2 + th / 2, 0);
 }
 
-/* Khung 9:16 letterbox + ortho frustum ôm trọn phòng (MOD-5). */
+/* Khung 9:16 letterbox + ortho frustum = ĐÚNG 1 MÀN HÌNH (MOD-5 v2).
+   Khung ngang ôm vừa chiều rộng phòng; chiều dọc suy ra từ tỉ lệ 9:16 —
+   KHÔNG ôm cả phòng nữa (phòng cao 2 màn hình), phần thiếu do camera follow. */
 function resize() {
   var ww = window.innerWidth, wh = window.innerHeight, aspect = 9 / 16;
   var w = Math.min(ww, wh * aspect), h = w / aspect;
@@ -384,13 +689,122 @@ function resize() {
   stageEl.style.height = Math.round(h) + 'px';
   renderer.setSize(Math.round(w), Math.round(h), false);
 
-  var t = CFG.camera.tiltDeg * Math.PI / 180;
-  // Phòng chiếu lên mặt phẳng camera: rộng = room.w, cao = room.h*cos(tilt)
-  var needW = CFG.room.w, needH = CFG.room.h * Math.cos(t) + CFG.room.wallH * Math.sin(t) * 2;
-  var halfW = Math.max(needW / 2, (needH / 2) * aspect) * CFG.camera.fitMargin;
+  var halfW = (CFG.room.w / 2) * CFG.camera.fitMargin;
   var halfH = halfW / aspect;
   camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
   camera.updateProjectionMatrix();
+  applyCamera();
+}
+
+/* Nửa chiều cao vùng nhìn quy chiếu về MẶT SÀN (khung nghiêng nên bị co lại
+   theo cos(tilt) khi chiếu lên camera => chia ngược lại để ra world-unit z). */
+function viewHalfZ() {
+  return camera.top / Math.cos(CFG.camera.tiltDeg * Math.PI / 180);
+}
+
+/* Giới hạn tâm khung nhìn để khung không lòi ra ngoài 2 đầu phòng. */
+function camLimitZ() {
+  return Math.max(0, CFG.room.h / 2 - viewHalfZ());
+}
+
+/* [MOD-6 v2] Chiều cao dải HUD quy đổi sang world-unit trên trục z.
+   Dải HUD chiếm hudPx / stageH phần khung nhìn; khung nhìn cao 2*viewHalfZ
+   world-unit khi quy về mặt sàn => padZ tương ứng. */
+function hudPadZ() {
+  var hud = $('hudTop');
+  var stH = stageEl ? stageEl.clientHeight : 0;
+  if (!hud || !stH) return 0;
+  var px = hud.offsetHeight + CFG.camera.hudPadExtra;
+  return (px / stH) * (viewHalfZ() * 2);
+}
+
+/* Giới hạn tâm khung nhìn về phía ĐẦU TRÊN phòng (z âm): nới thêm hudPadZ()
+   nên mép trên khung nhìn vượt qua đỉnh phòng đúng bằng dải HUD -> hero đứng
+   sát đỉnh phòng vẫn nằm DƯỚI dải HUD, thấy trọn. [MOD-6 v2] */
+function camLimitTopZ() {
+  return camLimitZ() + hudPadZ();
+}
+
+/* Đặt camera + đèn theo camZ hiện tại. */
+function applyCamera() {
+  var t = CFG.camera.tiltDeg * Math.PI / 180;
+  camera.position.set(0, CFG.camera.dist * Math.cos(t), camZ + CFG.camera.dist * Math.sin(t));
+  camera.lookAt(0, 0, camZ);
+  // project() trong updateTexts() chạy TRƯỚC render() nên phải tự cập nhật
+  // matrixWorldInverse ngay tại đây, nếu không thanh máu/số damage sẽ lệch.
+  camera.updateMatrixWorld(true);
+
+  if (dirLight) {
+    dirLight.position.set(CFG.room.w * 0.6, VIEW_H * 0.9, camZ + VIEW_H * 0.35);
+    dirTarget.position.set(0, 0, camZ);
+    dirTarget.updateMatrixWorld(true);
+  }
+}
+
+/* [MOD-5 v2] Camera FOLLOW hero chỉ theo trục z, clamp ở 2 đầu phòng. */
+function updateCamera(dt) {
+  // clamp KHÔNG đối xứng: phía dưới ôm đúng đáy phòng, phía trên nới thêm
+  // hudPadZ() để dải HUD không đè lên hero. [MOD-6 v2]
+  var lim = camLimitZ();
+  var want = clamp(state && state.hero ? state.hero.z : 0, -camLimitTopZ(), lim);
+  var k = CFG.camera.followLerp;
+  if (k > 0 && dt > 0) camZ += (want - camZ) * Math.min(1, k * dt);
+  else camZ = want;
+  applyCamera();
+}
+
+/* [ADD-3](b) Vệt màu phía sau hero khi di chuyển: pool cố định N plane dẹt
+   nằm sàn (KHÔNG tạo geometry/material mới mỗi frame), mỗi node bật lên tại
+   vị trí hero rồi tự mờ dần trong CFG.juice.trailLife (~0.3s). */
+var TRAIL_POOL_N = 14;
+var trailPool = null, trailRR = -1;
+function initTrailPool() {
+  if (trailPool) return;
+  trailPool = [];
+  var geo = new THREE.PlaneGeometry(CFG.hero.radius * 1.6, CFG.hero.radius * 1.6);
+  for (var i = 0; i < TRAIL_POOL_N; i++) {
+    var m = new THREE.MeshBasicMaterial({
+      color: CFG.color.trail, transparent: true, opacity: 0,
+      depthWrite: false, side: THREE.DoubleSide
+    });
+    var mesh = new THREE.Mesh(geo, m);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.visible = false;
+    groupFx.add(mesh);
+    trailPool.push({ mesh: mesh, mat: m, active: false, life: 0, max: CFG.juice.trailLife });
+  }
+}
+function spawnTrailNode(x, z) {
+  trailRR = (trailRR + 1) % trailPool.length;
+  var n = trailPool[trailRR];
+  n.active = true; n.life = n.max; n.mat.opacity = 0.5;
+  n.mesh.position.set(x, 0.02, z);
+  n.mesh.scale.setScalar(1);
+  n.mesh.visible = true;
+}
+function updateTrail(dt) {
+  if (!trailPool || !state || !state.hero) return;
+  state.trailTimer -= dt;
+  if (state.hero.moving && state.trailTimer <= 0) {
+    state.trailTimer = CFG.juice.trailInterval;
+    spawnTrailNode(state.hero.x, state.hero.z);
+  }
+  for (var i = 0; i < trailPool.length; i++) {
+    var n = trailPool[i];
+    if (!n.active) continue;
+    n.life -= dt;
+    if (n.life <= 0) { n.active = false; n.life = 0; n.mesh.visible = false; n.mat.opacity = 0; continue; }
+    var k = n.life / n.max;
+    n.mat.opacity = 0.5 * k;
+    n.mesh.scale.setScalar(0.55 + 0.45 * k);
+  }
+}
+function clearTrail() {
+  if (!trailPool) return;
+  for (var i = 0; i < trailPool.length; i++) {
+    var n = trailPool[i];
+    n.active = false; n.life = 0; n.mesh.visible = false; n.mat.opacity = 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +814,7 @@ var state = null;
 
 function freshState() {
   return {
-    phase: 'playing',        // 'playing' | 'levelup' | 'won' | 'lost'
+    phase: 'playing',        // 'playing' | 'paused' | 'levelup' | 'won' | 'lost'
     time: 0,
     wave: 0,                 // wave hiện tại (0 = chưa spawn)
     waveTimer: 0,            // đếm ngược tới wave kế
@@ -415,17 +829,69 @@ function freshState() {
     level: 1, xp: 0,
     cards: [],
     stat: { atkMul: 1, fireMul: 1, hpBonus: 0 },
-    kills: 0
+    kills: 0,
+    trailTimer: 0            // [ADD-3](b) đếm ngược tới lần rơi vệt kế
   };
+}
+
+/* [VÒNG D-3] Tạo AnimationMixer cho 1 entity NẾU có ít nhất 1 clip khớp
+   (idle/run/attack) — KHÔNG tạo mixer rỗng cho entity không có clip nào
+   (3 quái hiện tại: có rig nhưng KHÔNG có animation clip thật trong file). */
+function attachMixerIfAny(mesh) {
+  var cl = mesh.userData && mesh.userData.fbxClips;
+  if (!cl || (!cl.idle && !cl.run && !cl.attack)) return null;
+  var mixer = new THREE.AnimationMixer(mesh.userData.fbxRoot);
+  var actions = { idle: null, run: null, attack: null };
+  if (cl.idle) actions.idle = mixer.clipAction(cl.idle);
+  if (cl.run) actions.run = mixer.clipAction(cl.run);
+  if (cl.attack) actions.attack = mixer.clipAction(cl.attack);
+  var animState = null;
+  if (actions.idle) { actions.idle.play(); animState = 'idle'; }
+  else if (actions.run) { actions.run.play(); animState = 'run'; }
+  return { mixer: mixer, actions: actions, animState: animState, attackT: 0 };
+}
+
+/* Chuyển idle<->run mượt (fade); KHÔNG đụng khi đang giữa clip attack
+   (updateHeroAttackAnim quản lý riêng, trả lại idle/run khi xong). */
+function updateAnimIdleRun(am, moving) {
+  if (!am || am.animState === 'attack') return;
+  var wantRun = moving && am.actions.run;
+  var target = wantRun ? 'run' : (am.actions.idle ? 'idle' : null);
+  if (target && am.animState !== target) {
+    am.actions[target].reset().fadeIn(0.15).play();
+    if (am.animState && am.actions[am.animState]) am.actions[am.animState].fadeOut(0.15);
+    am.animState = target;
+  }
+}
+
+/* [VÒNG D-3](C.5) Fade-in ngắn clip attack (FireHold) khi hero bắn, rồi trả
+   về idle/run sau khi hết thời lượng clip — KHÔNG lặp (không phải trạng thái
+   thường trực), KHÔNG đổi nhịp bắn (CFG.arrow.fireRate không đổi). */
+function playHeroAttackAnim(h) {
+  var am = h.anim; if (!am || !am.actions.attack) return;
+  var a = am.actions.attack;
+  a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true;
+  if (am.animState && am.actions[am.animState]) am.actions[am.animState].fadeOut(0.1);
+  a.fadeIn(0.08).play();
+  am.animState = 'attack';
+  am.attackT = a.getClip().duration || 0.3;
+}
+function updateHeroAttackAnim(h, dt) {
+  var am = h.anim; if (!am || am.animState !== 'attack') return;
+  am.attackT -= dt;
+  if (am.attackT <= 0) am.animState = null;   // updateAnimIdleRun() sẽ gán lại idle/run
 }
 
 function makeHero() {
   var mesh = Assets.make('hero');
   groupEntities.add(mesh);
   return {
-    mesh: mesh, x: 0, z: CFG.room.h * 0.32, r: CFG.hero.radius,
+    // [MOD-5 v2] Hero bắt đầu ở ĐẦU DƯỚI phòng (z dương = phía dưới màn hình).
+    mesh: mesh, x: 0, z: CFG.room.h / 2 - 2.5, r: CFG.hero.radius,
     hp: CFG.hero.hpMax, hpMax: CFG.hero.hpMax,
-    fireCd: 0, moving: false, facing: 0, flash: 0
+    fireCd: 0, moving: false, facing: 0, flash: 0,
+    fx: cloneEntityMaterials(mesh),                     // [ADD-3](d) hit-flash riêng
+    anim: attachMixerIfAny(mesh)                         // [VÒNG D-3] null nếu không có clip
   };
 }
 
@@ -491,9 +957,12 @@ function spawnEnemy(type) {
           mesh: Assets.make('monster_bug') };
   } else {
     e = { type: 'flower', hp: CFG.flower.hp, hpMax: CFG.flower.hp, r: CFG.flower.radius,
-          speed: 0, fireCd: rnd(0.3, CFG.flower.fireInterval), mesh: Assets.make('monster_flower') };
+          speed: 0, fireCd: rnd(0.3, CFG.flower.fireInterval), windup: false,
+          mesh: Assets.make('monster_flower') };
   }
   e.x = p.x; e.z = p.z; e.flash = 0;
+  e.fx = cloneEntityMaterials(e.mesh);      // [ADD-3](d) hit-flash riêng từng quái
+  e.anim = attachMixerIfAny(e.mesh);        // [VÒNG D-3] null hiện tại (3 quái không có clip)
   e.mesh.position.set(e.x, 0, e.z);
   groupEntities.add(e.mesh);
   state.enemies.push(e);
@@ -505,11 +974,14 @@ function spawnEnemy(type) {
 // ---------------------------------------------------------------------------
 function tick(dt) {
   if (!state) return;
-  if (state.phase !== 'playing') { updateTexts(dt); return; }   // pause khi levelup/kết thúc
+  // dừng gameplay khi paused [MOD-6 v2] / levelup / kết thúc
+  if (state.phase !== 'playing') { updateTexts(dt); return; }
   dt = Math.min(dt, 0.05);        // chống nhảy dt lớn
   state.time += dt;
 
   updateHero(dt);
+  updateTrail(dt);                 // [ADD-3](b) vệt di chuyển
+  updateCamera(dt);               // [MOD-5 v2] follow trục z, trước updateTexts
   updateEnemies(dt);
   updateArrows(dt);
   updateEnemyBullets(dt);
@@ -550,9 +1022,19 @@ function updateHero(dt) {
     }
   } else if (h.fireCd < 0) h.fireCd = 0;
 
+  var heroWasFlash = h.flash > 0;                     // [ADD-3](d) hit-flash
   h.flash = Math.max(0, h.flash - dt);
+  if (heroWasFlash && h.flash <= 0) clearHitFlash(h.fx);
   h.mesh.position.set(h.x, 0, h.z);
   h.mesh.rotation.y = h.facing;
+
+  // [VÒNG D-3] AnimationMixer: Hold (idle) khi đứng HOẶC di chuyển (không có
+  // clip run thật) — FireHold (attack) fade ngắn khi bắn, xem shootArrow().
+  if (h.anim) {
+    h.anim.mixer.update(dt);
+    updateHeroAttackAnim(h, dt);
+    updateAnimIdleRun(h.anim, h.moving);
+  }
 }
 
 function clampToRoom(o) {
@@ -581,6 +1063,7 @@ function shootArrow(h, tg) {
     r: CFG.arrow.radius, life: CFG.arrow.life,
     dmg: Math.round(CFG.arrow.damage * state.stat.atkMul), mesh: mesh
   });
+  playHeroAttackAnim(h);   // [VÒNG D-3] fade-in FireHold ngắn, không đổi fireRate
 }
 
 function updateArrows(dt) {
@@ -607,7 +1090,10 @@ function updateEnemies(dt) {
   var h = state.hero;
   for (var i = 0; i < state.enemies.length; i++) {
     var e = state.enemies[i];
+    if (e.anim) e.anim.mixer.update(dt);   // [VÒNG D-3] hiện tại luôn null (quái không có clip), giữ tổng quát
+    var wasFlash = e.flash > 0;                       // [ADD-3](d) hit-flash
     e.flash = Math.max(0, e.flash - dt);
+    if (wasFlash && e.flash <= 0) clearHitFlash(e.fx);
 
     if (e.type === 'slime') {
       // Slime: đi chậm về hero, gây damage khi chạm (có cooldown)
@@ -621,10 +1107,21 @@ function updateEnemies(dt) {
     } else if (e.type === 'bug') {
       updateBug(e, dt, h);
     } else {
-      // Hoa quái: đứng yên, bắn đạn về hero theo chu kỳ
+      // Hoa quái: đứng yên, bắn đạn về hero theo chu kỳ; [ADD-3](c) windup
+      // ngắn (phình thân) ngay trước phát bắn, KHÔNG đổi fireInterval.
       e.fireCd -= dt;
+      var wud = CFG.juice.windup, wasWindup = e.windup;
+      e.windup = e.fireCd <= wud;
+      if (e.windup) {
+        var kw = 1 - clamp(e.fireCd / wud, 0, 1);
+        e.mesh.scale.setScalar(1 + 0.22 * kw);
+      } else if (wasWindup) {
+        e.mesh.scale.setScalar(1);
+      }
       if (e.fireCd <= 0) {
         e.fireCd = CFG.flower.fireInterval;
+        e.windup = false;
+        e.mesh.scale.setScalar(1);
         shootEnemyBullet(e, h);
       }
       e.mesh.rotation.y = Math.atan2(h.x - e.x, h.z - e.z);
@@ -649,12 +1146,16 @@ function updateBug(e, dt, h) {
       e.dx = Math.sin(a); e.dz = Math.cos(a);
     }
   } else if (e.st === 'telegraph') {
-    // Vòng đỏ 0.6s trên sàn — hero rời khỏi vòng là né được
+    // Vòng đỏ 0.6s trên sàn (đã có) — hero rời khỏi vòng là né được;
+    // [ADD-3](c) thêm thân nháy: phình nhẹ theo nhịp nhanh trong lúc telegraph.
     if (e.ring) { e.ring.x = e.x; e.ring.z = e.z; }
+    var pulse = 1 + CFG.juice.bugPulse * Math.abs(Math.sin(state.time * 16));
+    e.mesh.scale.setScalar(pulse);
     if (e.t <= 0) {
       var cx = e.ring ? e.ring.x : e.x, cz = e.ring ? e.ring.z : e.z;
       if (dist2(h.x, h.z, cx, cz) <= Math.pow(CFG.bug.hitRadius, 2)) damageHero(CFG.bug.damage);
       e.st = 'dash'; e.t = CFG.bug.dashTime; e.ring = null;
+      e.mesh.scale.setScalar(1);
     }
   } else if (e.st === 'dash') {
     e.x += e.dx * CFG.bug.dashSpeed * dt;
@@ -737,6 +1238,7 @@ function updateRings(dt) {
 // ---------------------------------------------------------------------------
 function damageEnemy(e, dmg) {
   e.hp -= dmg; e.flash = 0.1;
+  applyHitFlash(e.fx);                    // [ADD-3](d) nháy sáng ~0.1s khi trúng đòn
   addText(e.x, CFG.hero.height, e.z, '-' + dmg, '');
   if (e.hp <= 0) killEnemy(e);
 }
@@ -756,7 +1258,8 @@ function damageHero(dmg) {
   var h = state.hero;
   if (state.phase !== 'playing' || h.hp <= 0) return;
   h.hp -= dmg; h.flash = CFG.hero.hitFlash;
-  addText(h.x, CFG.hero.height * 1.2, h.z, '-' + dmg, 'hero');
+  applyHitFlash(h.fx);                    // [ADD-3](d) nháy sáng ~0.1s khi hero trúng đòn
+  addText(h.x, CFG.hero.height * 1.2, h.z, '-' + dmg, 'hero');       // [ADD-3](a) đã có sẵn
   if (h.hp <= 0) { h.hp = 0; endGame(false); }   // [ADD-2] Game Over
 }
 
@@ -882,6 +1385,23 @@ function endGame(won) {
   syncHUD();
 }
 
+/* [MOD-6 v2] Tạm dừng: đặt phase='paused' -> tick() bỏ qua toàn bộ update
+   gameplay (chỉ chạy updateTexts), hiện overlay có nút "Tiếp tục". */
+function pause() {
+  if (!state || state.phase !== 'playing') return false;
+  state.phase = 'paused';
+  input.up = input.down = input.left = input.right = false;
+  showOverlay('ovPause', true);
+  return true;
+}
+
+function resume() {
+  if (!state || state.phase !== 'paused') return false;
+  state.phase = 'playing';
+  showOverlay('ovPause', false);
+  return true;
+}
+
 function showOverlay(id, on) {
   var el = $(id); if (!el) return;
   if (on) el.classList.add('show'); else el.classList.remove('show');
@@ -913,17 +1433,73 @@ function updateTexts(dt) {
   }
 }
 
-/* [MOD-6] HUD wave rút gọn: "Đợt k/5" + "Quái còn X". */
+/* [MOD-6 v2] HUD dựng theo Refs/Layout_1.png: nút Pause | Lv + thanh XP | coin,
+   bộ đếm quái, thanh Đợt 5 icon kiếm chéo. Thanh HP hero bám trên đầu hero
+   (đúng như layout gốc), không nằm trên HUD. */
+
+// Icon kiếm chéo (inline SVG, không tải file ngoài). Màu theo currentColor
+// để trạng thái .current đổi sang màu tối trên nền vàng.
+var WAVE_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<g fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">' +
+  '<path d="M4.5 3.5 L15.5 15"/><path d="M19.5 3.5 L8.5 15"/>' +
+  '</g>' +
+  '<g fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round">' +
+  '<path d="M6 20.5 L9.6 16.6"/><path d="M18 20.5 L14.4 16.6"/>' +   // chuôi kiếm
+  '<path d="M4.6 16 L9 20"/><path d="M19.4 16 L15 20"/>' +           // chắn tay
+  '</g></svg>';
+
+var waveCells = null;            // 5 phần tử .wv, dựng 1 lần
+
+function buildWaveBar() {
+  var row = $('waveRow'); if (!row || waveCells) return;
+  waveCells = [];
+  var html = '';
+  for (var i = 1; i <= CFG.wave.count; i++) {
+    html += '<div class="wv upcoming">' + WAVE_ICON +
+            '<span class="no">' + i + '</span><span class="tick">✔</span></div>';
+  }
+  row.innerHTML = html;
+  for (var j = 0; j < row.children.length; j++) waveCells.push(row.children[j]);
+}
+
 function syncHUD() {
-  var h = state.hero;
-  $('waveLine').textContent = 'Đợt ' + Math.max(1, state.wave) + '/' + CFG.wave.count;
-  $('enemyLine').textContent = 'Quái còn ' + state.enemies.length;
+  buildWaveBar();
+
+  // (b) Lv + thanh XP tới mốc kế
   $('lvLine').textContent = 'Lv.' + state.level;
   var need = xpNeed(), maxed = !isFinite(need);
-  $('xpLine').textContent = maxed ? 'MAX' : (state.xp + '/' + need);
   $('xpFill').style.width = (maxed ? 100 : clamp(state.xp / need * 100, 0, 100)) + '%';
-  $('hpLine').textContent = Math.max(0, Math.round(h ? h.hp : 0));
-  $('hpFill').style.width = (h ? clamp(h.hp / h.hpMax * 100, 0, 100) : 0) + '%';
+
+  // (d) số quái còn sống của wave hiện tại
+  $('enemyLine').textContent = state.enemies.length;
+
+  // (e) thanh Đợt: đã dọn / hiện tại / chưa tới
+  var cur = Math.max(1, state.wave);
+  for (var i = 0; i < waveCells.length; i++) {
+    var k = i + 1, cls;
+    if (k < cur || (k === cur && state.phase === 'won')) cls = 'wv done';
+    else if (k === cur) cls = 'wv current';
+    else cls = 'wv upcoming';
+    if (waveCells[i].className !== cls) waveCells[i].className = cls;
+  }
+
+  updateHeroBar();
+}
+
+/* Thanh HP hero bám theo hero, chiếu bằng camera.project() giống số damage nổi. */
+var _projHP = new THREE.Vector3();
+function updateHeroBar() {
+  var bar = $('heroBar'); if (!bar) return;
+  var h = state.hero;
+  if (!h || h.hp <= 0 || state.phase === 'lost') { bar.classList.remove('on'); return; }
+  bar.classList.add('on');
+  $('heroHPFill').style.width = clamp(h.hp / h.hpMax * 100, 0, 100) + '%';
+  $('heroHPText').textContent = Math.max(0, Math.round(h.hp));
+  var rect = stageEl ? { w: stageEl.clientWidth, h: stageEl.clientHeight } : { w: 540, h: 960 };
+  _projHP.set(h.x, CFG.hero.height + 0.35, h.z).project(camera);
+  bar.style.left = ((_projHP.x * 0.5 + 0.5) * rect.w) + 'px';
+  bar.style.top = ((-_projHP.y * 0.5 + 0.5) * rect.h) + 'px';
 }
 
 // ---------------------------------------------------------------------------
@@ -963,10 +1539,13 @@ function clearScene() {
 /* [ADD-2] Reset toàn bộ state, KHÔNG reload trang. */
 function reset() {
   clearScene();
+  clearTrail();                   // [ADD-3](b) tắt vệt còn sót từ ván trước
   state = freshState();
   state.hero = makeHero();
   api.state = state;
   input.up = input.down = input.left = input.right = false;
+  updateCamera(0);                // [MOD-5 v2] snap camera về đầu dưới phòng
+  showOverlay('ovPause', false);
   showOverlay('ovCard', false);
   showOverlay('ovEnd', false);
   syncHUD();
@@ -1009,8 +1588,22 @@ var api = {
   start: start, reset: reset, tick: tick, setInput: setInput,
   killAll: killAll, spawnWave: spawnWave, getSnapshot: getSnapshot,
   chooseCard: chooseCard,
+  pause: pause, resume: resume,                       // [MOD-6 v2]
   hasFBX: function (k) { return Assets.has(k); },
-  _internal: { Assets: Assets, get scene() { return scene; } }
+  _internal: { Assets: Assets, ASSET_SIZE: ASSET_SIZE, get scene() { return scene; }, get camera() { return camera; },
+               camLimitZ: function () { return camLimitZ(); },
+               camLimitTopZ: function () { return camLimitTopZ(); },
+               hudPadZ: function () { return hudPadZ(); },
+               viewHalfZ: function () { return viewHalfZ(); },
+               // [ADD-3](b) số node vệt đang active — dùng cho test_juice
+               trailActiveCount: function () {
+                 if (!trailPool) return 0;
+                 var n = 0;
+                 for (var i = 0; i < trailPool.length; i++) if (trailPool[i].active) n++;
+                 return n;
+               },
+               // [VÒNG D-3b] có đang dùng crop texture từ floor.png hay không (false = fallback checker)
+               floorTexture: function () { return !!makeFloorCropTexture(); } }
 };
 window.__game = api;
 
@@ -1022,6 +1615,9 @@ function boot() {
   initThree();
   initInput();
   $('btnReplay').addEventListener('click', function () { start(); });
+  // [MOD-6 v2] nút Pause góc trên trái + nút "Tiếp tục" trong overlay
+  $('btnPause').addEventListener('click', function () { pause(); });
+  $('btnResume').addEventListener('click', function () { resume(); });
   start();
   requestAnimationFrame(loop);
 }

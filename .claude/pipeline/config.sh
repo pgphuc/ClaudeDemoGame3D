@@ -9,7 +9,7 @@ ROOT="D:/Project/ClaudeDemoGame3D/ArcheroDemo"
 ASSETS="$ROOT/Assets"     # 5 file .fbx gốc
 REFS="$ROOT/Refs"         # video gameplay (.mp4) + ảnh layout/level tham chiếu
 DOCS="$ROOT/Docs"         # nơi đặt MECHANIC_ORIGINAL/CHANGES/BUILD_HANDOFF + frames tách ra
-SRC="$ROOT/src"           # engine template (copy từ jelly3d_src) — game_core.js sửa ở đây
+SRC="$ROOT/src"           # engine template (copy từ $PIPE/engine_template) — game_core.js sửa ở đây
 
 # --- Bộ khung pipeline (cố định, không đổi theo project) ---
 PIPE="D:/Project/ClaudeDemoGame3D/.claude/pipeline"

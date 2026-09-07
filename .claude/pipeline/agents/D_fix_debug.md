@@ -4,10 +4,10 @@
 > lặp: chạy → chụp ảnh → đọc ảnh → sửa → chụp lại.
 
 ## INPUT
-- Source `jelly3d_src/` (đặc biệt `game_core.js`).
+- Source `$SRC/` (đặc biệt `game_core.js`).
 - `BUILD_HANDOFF.txt` (biết mechanic đã chốt + CFG + cách build/test).
 - Mô tả bug / yêu cầu chỉnh của người dùng (text, hoặc ảnh chụp lỗi).
-- Harness test: `tools/run.sh`, `tools/drive.js`, các `tools/test_*.js`.
+- Harness test: `tools/run.sh`, các `tools/test_*.js`.
 
 ## OUTPUT
 - `game_core.js` (và/hoặc `game.html`, CFG) đã sửa.

@@ -59,8 +59,9 @@ có **input/output riêng** và bàn giao nhau qua file `.txt` — để tiết 
 - **ffmpeg** trong PATH — cho `extract_frames.sh`. Kiểm tra: `ffmpeg -version`.
   Nếu chưa có: `winget install ffmpeg`.
 - **Chrome** ở `C:\Program Files\Google\Chrome\Application\chrome.exe` — cho `run.sh`.
-- **Engine template** `jelly3d_src/` (lib three r136 global + tools) — tái dùng từ
-  demo Jelly Drop; copy cả thư mục này làm khung khởi đầu cho mỗi game mới.
+- **Engine template** tại `$PIPE/engine_template/` (`lib/` three r136 + FBXLoader +
+  `tools/run.sh`, `tools/build_single.js` + vỏ `game.html`) — lấy từ ArcheroDemo v1;
+  copy cả thư mục này làm khung khởi đầu cho mỗi game mới.
 
 ---
 
@@ -82,13 +83,13 @@ SandDropDemo/
 ├── Assets/   (5 file .fbx)                    -> $ASSETS
 ├── Refs/     (gameplay_*.mp4, Layout_*.jpg)   -> $REFS
 ├── Docs/     (các .txt + frames tách ra)      -> $DOCS
-└── src/      (engine template = jelly3d_src)  -> $SRC   (xem Bước 0b)
+└── src/      (engine template = engine_template)  -> $SRC   (xem Bước 0b)
 ```
 
 ### Bước 0b — (1 lần) copy engine template vào project
 Engine template (`lib/` three r136 + `tools/` + vỏ `game.html`) tái dùng từ demo cũ:
 ```bash
-cp -r "C:/Users/Admin/Desktop/LevelEditorGuide/demo game/jelly3d_src" "$SRC"
+cp -r "$PIPE/engine_template/." "$SRC"
 ```
 ✅ **PASS khi:** `$SRC/lib/`, `$SRC/tools/`, `$SRC/game.html` tồn tại.
 
@@ -177,7 +178,7 @@ chứng minh bug hết; KHÔNG chấp nhận tuyên bố "đã fix" mà không c
 ## 6. Mở rộng cho game KHÁC (không chỉ Jelly Drop)
 
 - Đổi bảng `ASSET_MAP` trong `embed_fbx.js` cho bộ FBX mới.
-- Copy `jelly3d_src/` làm template khởi đầu; Agent C viết lại `game_core.js` theo
+- Copy `engine_template/` làm template khởi đầu; Agent C viết lại `game_core.js` theo
   spec mới nhưng giữ nguyên `lib/` + `tools/`.
 - Mỗi game giữ 1 bộ 3 file `.txt` riêng (ORIGINAL / CHANGES / HANDOFF) cạnh source.
 ```

@@ -8,10 +8,12 @@
 - `MECHANIC_ORIGINAL.txt`  (từ Agent A)
 - `MECHANIC_CHANGES.txt`   (từ Agent B)
 - `assets_fbx.js`          (từ `scripts/embed_fbx.js` — KHÔNG tự sinh lại)
-- Engine template (khung bất biến): thư mục `jelly3d_src/` gồm:
+- Engine template (khung bất biến): thư mục `engine_template/` gồm:
   - `lib/` (three r136 global, FBXLoader, fflate, NURBS)
   - `game.html` (vỏ UI + CSS)
-  - `tools/` (run.sh, drive.js, build_single.js, các test_*.js)
+    - `game.html` trong template mang HUD/CSS mẫu của ArcheroDemo (id #hudTop, #waveRow, #heroBar, overlay #ovPause/#ovCard/#ovEnd...) — Agent C GIỮ khung stage/canvas/script-load và VIẾT LẠI phần HUD DOM + overlay theo mechanic của game mình, không giữ nguyên HUD Archero.
+  - `tools/` (run.sh, build_single.js) — Agent C **tự viết thêm** `tools/test_*.js`
+    riêng cho mechanic của game mình (không có sẵn trong template).
 - Template handoff: `templates/BUILD_HANDOFF.txt`
 
 ## OUTPUT

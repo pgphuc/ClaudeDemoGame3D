@@ -2,6 +2,215 @@
  BUILD_HANDOFF — TÀI LIỆU BÀN GIAO SAU BUILD (Agent C)
  Tên game: ArcheroDemo (top-down roguelike shooter kiểu Archero 2)
  Ngày: 2026-09-07
+--------------------------------------------------------------------------------
+NHẬT KÝ VÒNG FIX (Agent D)
+  VÒNG D-3c 2026-09-07: tune scale/hướng theo phản hồi hình ảnh vòng D-3b.
+  (0) BUG "freeze fix" ở cuối D-3b (test_shot_wave2.js) — GIẢI THÍCH: KHÔNG
+    phải do parse FBX đồng bộ lúc spawn. run.sh chạy Chrome 2 lượt độc lập
+    trên CÙNG probe HTML: lượt --screenshot chụp ảnh ở CUỐI virtual-time-
+    budget; lượt --dump-dom đọc CODE_RESULT ngay khi trang bắn sự kiện 'load'
+    (harness gọi run() qua setTimeout(fn,0)). Vòng lặp rAF TỰ NHIÊN của game
+    (loop() ở cuối game_core.js, đăng ký 1 lần lúc boot()) chạy ĐỘC LẬP với
+    các lệnh g.tick() thủ công trong test script — script gọi ~400+ tick thủ
+    công gần như tức thời (mô phỏng ~7s game-time trong 1 tick JS), nhưng
+    KHÔNG tiêu tốn virtual-time-budget của harness; sau khi script return,
+    budget vẫn còn dư, rAF loop tiếp tục tick() THẬT trong phần dư đó ->
+    hero tiếp tục auto-fire giết thêm quái wave2 -> đôi khi đủ XP lên cấp
+    NGAY LÚC CHROME CHỤP ẢNH (cuối budget), dù CODE_RESULT (đọc sớm hơn,
+    trước khi phần dư đó chạy) vẫn báo xp=3/level=1 — 2 lượt lệch nhau, ảnh
+    thỉnh thoảng dính overlay "TĂNG CẤP!" dù CODE_RESULT sạch. SỬA tại
+    src/tools/test_shot_wave2.js: đóng băng state.phase='paused' TRỰC TIẾP
+    (không qua api.pause() để khỏi hiện overlay "TẠM DỪNG") ngay trước khi
+    return — tick() bỏ qua toàn bộ update gameplay khi phase!=='playing' nên
+    rAF loop dư thời gian không còn tác dụng phụ; render() vẫn chạy nên
+    Chrome vẫn chụp được cảnh (kỹ thuật giống hệt shot_trail.js/
+    shot_telegraph.js/shot_hitflash.js đã dùng từ vòng D-4). Xác nhận: chạy
+    lại 3 lần liên tiếp, phase luôn "paused", xp=3, không còn overlay.
+  (1) BỌ (monster_bug) quá nhỏ: CFG.assetScale.monster_bug = 2.16 (bbox.h
+    chuẩn hoá gốc = 0.416, ×2.16 ≈ 0.9 — khớp yêu cầu "cao ≈ 0.9 như slime").
+    Đo thực tế qua test_assets: bbox.h = 0.899.
+  (2) MŨI TÊN gần như vô hình — 2 lỗi gộp:
+    (a) ROOT CAUSE độ dẹt (h=0.093 ở D-3): THREE.Box3.setFromObject() KHÔNG
+      loại trừ mesh có visible=false — hideArrowFxChildren() bản D-3/D-3b chỉ
+      ẩn "shadow" (decal phẳng RỘNG 180x180, xem khảo sát) bằng visible=false
+      NÊN bbox chuẩn hoá vẫn bị nó chi phối, làm mọi thứ bị scale dẹt xuống.
+      SỬA: hideArrowFxChildren() giờ GỠ HẲN (node.parent.remove(node)) thay
+      vì chỉ ẩn — và gọi TRƯỚC bước đo bbox chuẩn hoá (trước đây gọi SAU).
+      Mở rộng thêm từ khoá "weapon" — phát hiện "Public_Weapon05" (size ~28x
+      9x92, world z=-93.4, lệch tâm) là 1 CÂY CUNG đóng gói chung file, KHÔNG
+      phải mũi tên — gỡ luôn. Chỉ còn lại "child" (28.58x28.38x115.3, tâm
+      z=0) — ĐÚNG thân mũi tên, trục dài nằm sẵn ở Z (khớp +Z forward, KHÔNG
+      cần ASSET_ROT_OFFSET). Thêm hàm normalizeToLengthZ() (chuẩn hoá theo
+      trục Z thay vì Y) riêng cho arrow; ASSET_SIZE.arrow.h đổi nghĩa thành
+      "chiều dài dọc Z" = 1.0 (trước là 0.5 theo trục Y sai).
+    (b) Vật liệu: forceArrowMaterial() ép THREE.MeshBasicMaterial màu
+      CFG.color.arrow = 0xffe680 (đổi từ 0xfff4d0) KHÔNG phụ thuộc ánh sáng —
+      thay hẳn fixArrowColorIfBlack() (chỉ sửa màu khi tối) vì cách cũ vẫn có
+      thể ra tối/khó thấy tuỳ ánh sáng cảnh.
+    Đo thực tế: bbox {w:0.248,h:0.246,d:1.0} — d (dọc Z) = đúng 1.0.
+  (3) HOA QUÁI (monster_flower) "đổ như quả táo" — bbox thô (trước chuẩn
+    hoá) thực ra CÓ trục Y lớn nhất (156.3 > 152.7 > 133.6) nên KHÔNG phải
+    lỗi trục hoàn toàn sai, nhưng bind-pose vẫn ngả/không đứng thẳng theo
+    cảm quan. Thêm ASSET_ROT_OFFSET_X (mới, tách riêng khỏi ASSET_ROT_OFFSET
+    vốn chỉ xoay Y) — so sánh trực tiếp qua ảnh 4 góc X (-180/-90/0/+90, đã
+    cộng với rotation.y=90 có sẵn): +90° là góc DUY NHẤT lộ rõ miệng/răng
+    (đặc điểm "mặt trước" thật của sinh vật bẫy ruồi) hướng ra ngoài thay vì
+    bị giấu/úp xuống. Chốt ASSET_ROT_OFFSET_X.monster_flower = +Math.PI/2.
+    Thêm realignAfterRotation() gọi SAU khi xoay X (canh lại đáy y=0 + tâm
+    x/z=0, vì xoay quanh X làm lệch bbox đã canh trước đó theo Y-only).
+  (4) SÀN: D-3b crop x280-760/y760-1400 vẫn lộ viền cam (đá sỏi) ở mép trên/
+    dưới mỗi tile + đường nối dọc giữa. THU HẸP crop vào trong: x300-740/
+    y790-1370 (440x580, tránh hẳn viền) + đổi wrapS/T từ RepeatWrapping sang
+    MirroredRepeatWrapping (tile kế tiếp lật gương, giấu đường nối vì mép
+    crop nay đối xứng nhau). Xác nhận qua r3c_after_start/top: không còn
+    vạch cam/đường dọc rõ rệt.
+  (5) TƯỜNG: đã đổi màu xám đá (0x8b90a9) từ VÒNG D-3b, giữ nguyên ở D-3c
+    (không đổi thêm).
+  Bằng chứng: shots/r3c_gallery.png (5 asset + marker vàng +Z, camera zoom
+  1.6x chỉ trong script, KHÔNG tick gameplay — xem tools/shot_gallery.js),
+  r3c_after_{start,wave2,top}.png, r3c_assets.png (CODE_RESULT mục 4), r3c_
+  {win,lose,hud,juice,cam_bottom,cam_mid,cam_top}.png PASS số y hệt baseline
+  D-4 (không đổi gameplay/CFG mục G). Build ArcheroDemo.html = 17.2 MB (giảm
+  từ 18.5 MB vòng D-3b nhờ bỏ floor.fbx) — test_win + test_assets trên bản
+  build khớp bản src.
+  VÒNG D-3b 2026-09-07: sửa theo phản hồi hình ảnh vòng D-3 (floor rối mắt,
+  hero/quái quá nhỏ). (1) SÀN: Mesh_ShenMiaoRoom_13x25.fbx hoá ra là 1 TRANH
+  vẽ tay nguyên khối (sân đá + viền cây/đá xung quanh), KHÔNG PHẢI hoạ tiết
+  lặp — lát 2 bản (theo spec D-3) làm hoạ tiết trang trí LẶP LẠI 2 lần, rối
+  hơn hẳn sàn ca-rô cũ. BỎ HẲN floor khỏi ASSET_MAP (embed_fbx.js) và
+  ASSET_KEYS (game_core.js) — sàn quay lại plane primitive (Prim.floor()),
+  texture = vùng "sân đá" CROP từ floor.png (không lấy viền trang trí), toạ
+  độ px x280-760/y760-1400 (ảnh gốc 1024x2048) do user chỉ định, vẽ vào
+  offscreen canvas -> THREE.CanvasTexture, RepeatWrapping, repeat=(room.w/5,
+  room.h/5)≈(2,7.11) để 1 tile ≈5 world-unit. embed_fbx.js: TEX_KEYS tách
+  RIÊNG khỏi ASSET_MAP (bug tiềm ẩn được chặn trước: nếu lặp theo
+  Object.keys(ASSET_MAP) như cũ sẽ BỎ SÓT floor.png vì 'floor' không còn
+  trong ASSET_MAP) — floor.png vẫn nhúng dù floor.fbx không dùng nữa. Tường:
+  đổi màu CFG.color.wall -> 0x8b90a9 (xám đá gần viền gạch trong floor.png).
+  (2) KÍCH THƯỚC: hero/3 quái quá nhỏ (bbox ngang 0.21 vs mục tiêu 0.64,
+  nguyên nhân: normalizeToSize cũ ràng buộc CẢ đường kính XZ lẫn chiều cao Y,
+  bind-pose gốc của rig có tỉ lệ khác primitive nên bị đường kính giới hạn
+  trước). Thêm normalizeToHeight() (chỉ ràng buộc chiều cao Y, bỏ đường
+  kính) dùng cho hero/monster_* (HEIGHT_ONLY_KEYS); arrow/wall giữ
+  normalizeToSize() (cả d+h) như cũ. Thêm CFG.assetScale = {hero,
+  monster_flower, monster_bug, monster_slime, arrow: 1} nhân thêm sau chuẩn
+  hoá, để user tune tiếp — mặc định 1 (giữ nguyên) ở vòng D-3b, đổi giá trị
+  thật ở D-3c (xem trên). Kết quả D-3b: hero bbox.h=0.95 (khớp target), flower
+  bbox.h=1.14 (khớp target) — bug/slime KHÔNG đổi (0.416/0.588, đã đúng
+  height-constraint từ trước, cần assetScale mới đổi được — làm ở D-3c).
+  (3) GALLERY: viết tools/shot_gallery.js (giữ tới nay) — xếp 5 asset ngang
+  hàng, marker vàng ở +Z, camera zoom riêng trong script. Qua gallery, xác
+  nhận monster_flower có miệng lệch — ASSET_ROT_OFFSET.monster_flower đổi từ
+  0 -> +Math.PI/2 (Y) để miệng khớp +Z (hero/bug/slime/arrow giữ 0 ở vòng
+  này, xem chi tiết ở D-3c cho arrow).
+  VÒNG D-3 2026-09-07: swap FBX + texture + AnimationMixer (thay primitive
+  bằng asset thật do user export). Việc lẽ ra làm TRƯỚC D-4 nhưng làm SAU vì
+  user export FBX muộn hơn — số thứ tự "D-3" giữ theo tên vòng, không theo
+  thời gian.
+  (A) Khảo sát 6 file FBX (grep -a trên binary, không có `strings` trên máy):
+    HeroKuLou.fbx: CÓ Deformer/rig, CÓ animation thật (17 tên clip riêng biệt,
+      xem mục 6). KHÔNG tham chiếu/nhúng texture nào trong file.
+    Mesh_ShenMiaoRoom_13x25.fbx (floor): KHÔNG rig, KHÔNG animation. Tham
+      chiếu texture NGOÀI "2DMap_ShenMiao_13x25_01.png" (path máy cũ, không
+      tồn tại ở đây) — map qua FBX_TEX.floor bằng setURLModifier.
+    ShaChong_Skin.fbx (monster_bug), ShiRenHua_Skin.fbx (monster_flower),
+      Slime_Skin.fbx (monster_slime): CẢ 3 đều CÓ Deformer/rig nhưng KHÔNG có
+      animation clip thật (AnimStack chỉ có template rỗng) — đứng tĩnh, KHÔNG
+      lỗi. KHÔNG tham chiếu/nhúng texture.
+    arrow_normal.fbx: KHÔNG rig (prop tĩnh). Tham chiếu texture NGOÀI 3 file
+      (Bullet1001_Shadow.png, Weapon_Public_04.png, eff_bow_03.png — không có
+      sẵn, không cấp cho game). Node con (Model::): arrow_normal, shadow,
+      trail, t (locator rỗng, không rõ mục đích, để nguyên), Public_Weapon05,
+      child, center, head, tail — ẨN "shadow" và "trail" theo tên.
+  (B) embed_fbx.js: ASSET_MAP đổi sang tên file thực tế (hero=HeroKuLou.fbx,
+    monster_flower=ShiRenHua_Skin.fbx, monster_bug=ShaChong_Skin.fbx,
+    monster_slime=Slime_Skin.fbx, arrow=arrow_normal.fbx,
+    floor=Mesh_ShenMiaoRoom_13x25.fbx; wall vẫn thiếu, bỏ qua). Thêm nhúng
+    texture: mỗi key có <key>.png trong Assets/ (hero, floor, monster_bug,
+    monster_flower, monster_slime — đúng 5 file user đã đổi tên theo vai trò)
+    -> base64 data URI vào window.FBX_TEX[key]; arrow/wall không có -> bỏ qua.
+    assets_fbx.js sinh ra 18.12 MB (FBX gốc 9.30 MB + texture gốc 3.67 MB).
+  (C) game_core.js (AssetLoader, mục 12):
+    - FBXLoader nhận LoadingManager riêng mỗi key (makeAssetLoadingManager):
+      URL blob:/data: (texture ĐÃ nhúng trong FBX) giữ nguyên; URL khác (tham
+      chiếu ngoài không có thật) -> thay bằng FBX_TEX[key] hoặc 1x1 PNG rỗng
+      (BLANK_TEX_URI) nếu không có, để tránh loader cố tải path Windows tuyệt
+      đối không tồn tại trong trình duyệt.
+    - Model KHÔNG có node Texture/Video nào (hero, 3 quái) -> material parse
+      ra map=null dù có PNG thật -> applyTextureFallback() gán map trực tiếp
+      + needsUpdate sau khi parse. texture.encoding = THREE.sRGBEncoding.
+    - Entity CÓ rig (SkinnedMesh: hero + 3 quái) được RE-PARSE riêng từ buffer
+      đã cache mỗi lần Assets.make() (KHÔNG .clone(true)) vì three r136 trong
+      lib KHÔNG có THREE.SkeletonUtils để clone-rebind skeleton đúng; parse
+      lại chỉ tốn lúc SPAWN (không phải mỗi frame), rẻ hơn tự viết clone thủ
+      công. AnimationClip cache 1 lần lúc load (pickClips) DÙNG CHUNG cho mọi
+      entity cùng key — an toàn vì AnimationMixer bind theo TÊN node/bone,
+      không theo instance gốc. Entity KHÔNG rig (arrow) vẫn .clone(true) như
+      cũ. Kiểm bằng test_assets.js: không exception qua nhiều lượt spawn/wave.
+    - FLOOR (13x25, đơn vị FBX gốc raw ~1025x2072, KHÔNG phải mét) KHÔNG dùng
+      normalizeToSize chung (sẽ méo/không phủ hết) — buildFloorTilesFBX():
+      scale ĐỀU = CFG.room.w / (trục ngắn hơn trong x/z của bbox gốc, không
+      kéo giãn méo), tự xoay 90° nếu trục dài nằm ở X thay vì Z, rồi đặt 2
+      Object3D clone nối tiếp theo z (tileDepth ≈ 20.2 world-unit/tile, 2 tile
+      phủ ±20.2 > nửa phòng 17.78 — dư/overlap 2 đầu chấp nhận theo spec).
+      LƯU Ý: texture floor.png là 1 ẢNH VẼ TAY nguyên khối (sân + viền trang
+      trí cây/đá xung quanh), KHÔNG PHẢI hoạ tiết lặp (tileable) — lát 2 bản
+      cho thấy hoạ tiết trang trí LẶP LẠI 2 lần dọc phòng, rối mắt hơn nhiều
+      so với sàn ca-rô cũ. Đây là do TÀI SẢN (asset), không phải bug code —
+      xem mục 6.
+    - ARROW: hideArrowFxChildren() ẩn theo regex /trail|shadow|eff|mask/i áp
+      lên toàn bộ node con (khớp đúng "shadow"/"trail" tìm thấy ở mục A).
+      fixArrowColorIfBlack(): material không có map và màu quá tối (tổng kênh
+      RGB < 0.15) -> gán CFG.color.arrow (kem/vàng nhạt).
+    - HƯỚNG FORWARD: kiểm bằng ảnh (đặt hero rotation.y = 0/90/180/270 cạnh
+      nhau) — rotation.y=0 cho thấy MẶT hero (2 mắt) hướng đúng phía camera
+      (phía DƯỚI màn hình = +Z), KHỚP quy ước game (atan2(dx,dz), xem
+      updateHero/shootArrow/updateBug) -> ASSET_ROT_OFFSET giữ 0 cho TẤT CẢ
+      key, không cần offset. monster_bug/flower/slime/arrow không có chi tiết
+      bất đối xứng rõ để xác nhận 100% bằng mắt ở kích thước nhỏ, nhưng không
+      thấy dấu hiệu quay ngược — cùng quy ước atan2 với hero.
+    - ANIMATION (pickClips mở rộng theo yêu cầu, KHÔNG đổi cấu trúc): idle
+      nhận thêm "hold"; attack ưu tiên "firehold" trước "attack"/"fire"/
+      "shoot" (để "FireHold" không bị "Hold" nuốt nhầm vào idle). Kết quả
+      thực tế: hero idle="Hold" (đứng cầm cung), attack="FireHold" (fade-in
+      0.08s khi bắn, LoopOnce, tự trả về idle sau đúng thời lượng clip — KHÔNG
+      đổi CFG.arrow.fireRate), KHÔNG có clip run thật -> giữ "Hold" cả lúc
+      đứng lẫn di chuyển (đúng như đã chốt). 3 quái: KHÔNG tạo AnimationMixer
+      (attachMixerIfAny() bỏ qua khi cả 3 clip đều null) — tránh mixer rỗng.
+    - HIỆU NĂNG: 1 lần parse+decode buffer mỗi key lúc Assets.load() (cache
+      ArrayBuffer), sau đó chỉ tốn parse lại (không atob lại) mỗi lần spawn
+      entity có rig. Full run test_win (24 quái/5 wave) không timeout ở
+      virtual-time-budget hiện có (4000-6000ms).
+  (D) Bằng chứng: shots/r3_before_wave2.png (primitive, trước sửa) vs
+    shots/r3_after_{start,wave2,top}.png (asset thật, có texture, floor lát 2
+    tile). tools/test_assets.js (mới) — CODE_RESULT xem mục 4. test_win/lose/
+    hud/juice/cam_bottom/mid/top: PASS, SỐ Y HỆT baseline D-4 (không đổi
+    gameplay). Build ArcheroDemo.html = 18.5 MB (dưới 25 MB) — test_win +
+    test_assets trên bản build khớp bản src.
+  VÒNG D-4 2026-09-07: ADD-3 juice tối thiểu — (a) số damage nổi khi hero
+  trúng đòn: ĐÃ CÓ SẴN từ trước (damageHero()/addText cls='hero' + CSS
+  .dmg.hero), chỉ xác nhận lại bằng test, KHÔNG cần sửa. (b) vệt (trail) màu
+  phía sau hero khi di chuyển: pool 14 plane dẹt tái dùng (KHÔNG tạo
+  geometry/material mỗi frame), bật tại vị trí hero mỗi CFG.juice.trailInterval
+  khi h.moving, mờ dần trong CFG.juice.trailLife (~0.3s). (c) telegraph trực
+  quan: bọ đỏ — vòng đỏ dưới sàn ĐÃ CÓ (addRing, MOD-4), bổ sung thân phình
+  nhẹ theo nhịp nhanh (updateBug, nhánh 'telegraph'); hoa quái — thêm trạng
+  thái windup ~0.3s (CFG.juice.windup) ngay trước phát bắn (phình to dần),
+  KHÔNG đổi CFG.flower.fireInterval. (d) hit-flash ~0.1s khi quái/hero trúng
+  đòn: material.emissive đổi trắng tạm rồi trả về màu gốc; MỖI thực thể được
+  clone material riêng lúc spawn (cloneEntityMaterials(), gọi 1 lần, KHÔNG mỗi
+  frame) để tránh việc nhiều quái cùng loại share material qua cache mat() bị
+  nháy dây chuyền — đã test xác nhận cách ly (otherFlashUnaffected=true). Xem
+  mục 1 (file list), 2 (CFG.juice), 3 (13 mới), 4 (test_juice.js), 6.
+  VÒNG D-2 2026-09-07: MOD-6 v2 HUD — dựng lại HUD DOM theo Refs/Layout_1.png:
+  nút Pause (góc trên trái, overlay "Tiếp tục") | Lv + thanh XP | coin tĩnh 0;
+  bộ đếm icon quái; thanh Đợt 5 icon kiếm chéo (done/current/upcoming). Bỏ HUD
+  2 dòng chữ thuần; thanh HP hero chuyển lên trên đầu hero (đúng layout gốc).
+  Camera clamp phía TRÊN nới thêm đúng chiều cao dải HUD (hudPadZ) nên hero
+  đứng sát đỉnh phòng không còn bị HUD đè. Xem mục 2, 3 (5)(6), 4, 5.
+  VÒNG D-1 2026-09-07: MOD-5 v2 camera follow — phòng cao 2 màn hình 9:16
+  (h = 35.56), camera ortho nghiêng 30 độ FOLLOW hero theo trục z và clamp ở
+  2 đầu phòng; hero bắt đầu ở đầu dưới phòng. Xem mục 2 (CFG) và mục 3 (5).
 ================================================================================
 MỤC LỤC
   0. Game là gì
@@ -15,8 +224,8 @@ MỤC LỤC
 --------------------------------------------------------------------------------
 0. GAME LÀ GÌ (1 đoạn)
 --------------------------------------------------------------------------------
-Demo 3D chạy trong 1 file HTML: một phòng duy nhất tỉ lệ dọc 9:16, camera
-top-down nghiêng 30 độ CỐ ĐỊNH. Người chơi điều khiển hero bằng WASD/mũi tên;
+Demo 3D chạy trong 1 file HTML: một phòng duy nhất rộng 1 màn hình và CAO 2 màn
+hình 9:16, camera top-down nghiêng 30 độ bám (follow) hero theo trục dọc. Người chơi điều khiển hero bằng WASD/mũi tên;
 ĐỨNG YÊN thì hero tự bắn quái gần nhất, DI CHUYỂN thì ngừng bắn. Quái spawn
 theo 5 đợt (wave) nối tiếp gồm 3 loại: slime xanh (chậm/trâu/damage chạm),
 bọ đỏ (đuổi -> vòng đỏ telegraph 0.6s -> lao/đánh), hoa quái (đứng yên bắn đạn).
@@ -28,19 +237,87 @@ bộ mà KHÔNG reload trang.
 1. FILE QUAN TRỌNG (đường dẫn tuyệt đối)
 --------------------------------------------------------------------------------
 - Sản phẩm cuối (.html self-contained, double-click là chạy offline):
-    D:/Project/ClaudeDemoGame3D/ArcheroDemo/ArcheroDemo.html      (~783 KB)
+    D:/Project/ClaudeDemoGame3D/ArcheroDemo/ArcheroDemo.html      (17.2 MB —
+    [D-3b] giảm từ 18.5 MB sau khi bỏ floor.fbx khỏi ASSET_MAP; nhúng base64
+    5 file FBX (hero/3 quái/arrow, KHÔNG còn floor.fbx) + 5 texture PNG thật
+    — vẫn dưới ngưỡng cảnh báo 25 MB)
 - Source sửa được:
     D:/Project/ClaudeDemoGame3D/ArcheroDemo/src/
-      game.html          — vỏ UI: canvas 9:16 letterbox + HUD DOM + 2 overlay
+      game.html          — vỏ UI: canvas 9:16 letterbox + HUD DOM [MOD-6 v2]
+                           (#hudTop: #btnPause, #lvLine + #xpFill, #coinLine,
+                           #enemyLine, #waveRow) + #heroBar (HP bám hero) +
+                           3 overlay: #ovPause, #ovCard, #ovEnd
       game_core.js       — TOÀN BỘ logic game (file chính, sửa ở đây)
-      assets_fbx.js      — AUTO-GEN, hiện `window.FBX = {}` rỗng. KHÔNG sửa tay.
+      assets_fbx.js      — AUTO-GEN [D-3/D-3b] `window.FBX{hero,monster_flower,
+                           monster_bug,monster_slime,arrow}` (base64, KHÔNG còn
+                           'floor' từ D-3b — floor.fbx là tranh nguyên khối
+                           không lát được, xem mục 6; thiếu wall) +
+                           `window.FBX_TEX{hero,floor,monster_bug,
+                           monster_flower,monster_slime}` (data URI PNG —
+                           CHÚ Ý: floor VẪN nhúng texture dù không còn
+                           floor.fbx, vì Prim.floor() dùng crop texture runtime
+                           từ đây; arrow/wall không có PNG). 15.62 MB (giảm từ
+                           18.12 MB sau khi bỏ floor.fbx). KHÔNG sửa tay — sinh
+                           lại bằng embed_fbx.js.
       lib/               — three.min.js (r136 GLOBAL), FBXLoader, fflate, NURBS*.
                            KHÔNG sửa, KHÔNG thêm lib, KHÔNG CDN.
       tools/run.sh          — Chrome headless: screenshot + chạy test -> CODE_RESULT
       tools/test_win.js     — kịch bản thắng
       tools/test_lose.js    — kịch bản thua
+      tools/test_cam.js     — thân chung của test camera (định nghĩa __camTest)
+      tools/test_cam_{bottom,mid,top}.js — ghim hero ở đáy/giữa/đỉnh phòng rồi
+                              in heroZ/camZ/limitZ/limitTopZ để chứng minh clamp
+                              [MOD-5 v2][MOD-6 v2]
+      tools/test_hud.js     — [MOD-6 v2] kiểm HUD mới: 5 icon đợt, số quái, Lv,
+                              % XP, coin, pause/resume (tick khi pause không đổi
+                              state), hero ở đỉnh phòng không bị dải HUD che
+      tools/test_juice.js   — [ADD-3][D-4] kiểm juice: trail active>0 khi di
+                              chuyển rồi =0 sau 1s đứng yên; bọ vào 'telegraph'
+                              + ring hiện + thân phình; hoa vào windup trước khi
+                              bắn (fireInterval không đổi); quái trúng đòn có
+                              hitFlash timer>0 rồi về 0, material KHÔNG lan sang
+                              quái khác (clone riêng); hero trúng đòn có hitFlash
+                              + số damage .dmg.hero xuất hiện trong #fx
+      tools/test_assets.js   — [D-3/D-3b/D-3c] kiểm swap FBX: mỗi key loaded/
+                              meshCount/hasMap/bbox-vs-targetSize/clipNames/
+                              mixerCreated; floorTexture=true (crop texture
+                              đang dùng); arrowRemainingMeshes=["child"],
+                              arrowMaterial (MeshBasicMaterial + màu); chạy
+                              hero di chuyển rồi đứng yên để mixer chuyển
+                              idle/attack không lỗi.
+      tools/test_shot_wave2.js — tiện ích tạm: mô phỏng tới giữa wave 2 (có bọ
+                              + hoa) chỉ để chụp ảnh mốc so sánh trước/sau
+                              (dùng lại cho cả r2/r4/r3_{before,after}_wave2)
+      tools/shot_trail.js   — [D-4] chụp ảnh hero đang chạy có vệt phía sau
+                              (đóng băng state.phase='paused' trực tiếp — KHÔNG
+                              qua api.pause() để tránh hiện overlay — ngay khi
+                              có vệt, tránh vòng lặp rAF tự nhiên chạy tiếp làm
+                              hết vệt trước khi Chrome chụp)
+      tools/shot_telegraph.js — [D-4] chụp ảnh bọ đỏ đang telegraph (ring +
+                              thân phình), đóng băng cùng kỹ thuật trên
+      tools/shot_hitflash.js  — [D-4] chụp ảnh quái đang hit-flash đúng khung;
+                              gỡ hẳn quái khác khỏi state.enemies (không chỉ đẩy
+                              toạ độ, vì clampToRoom() sẽ kéo lại) để ảnh sạch
+      tools/shot_herodmg.js   — [D-4] chụp ảnh số damage nổi màu riêng khi hero
+                              trúng đòn (slime chạm)
       tools/build_single.js — gộp thành 1 file .html
-      shots/             — ảnh chụp kiểm tra (start/win/lose/wave2/single)
+      shots/             — ảnh chụp kiểm tra; tiền tố r<N>_ = vòng fix của Agent D
+                           (r2_before_start, r2_after_{start,wave3,pause,top,
+                           win,lose,single}, r2_cam_{bottom,mid,top},
+                           r4_before_wave2, r4_after_{trail,telegraph,hitflash,
+                           herodmg}, r4_{win,lose,hud,cam_bottom,cam_mid,
+                           cam_top,juice_test,single_win,single_juice},
+                           r3_before_wave2 [primitive, mốc gốc], r3_after_
+                           {start,wave2,top} [D-3, floor FBX lát 2 tile — ĐÃ
+                           BỎ cách này ở D-3b], r3_{win,lose,hud,juice,
+                           cam_bottom,cam_mid,cam_top,assets,single_win,
+                           single_assets} [D-3]; r3c_gallery [D-3c, 5 asset +
+                           marker hướng], r3c_after_{start,wave2,top} [D-3c,
+                           bản HIỆN TẠI — sàn crop texture, scale/hướng đã
+                           tune], r3c_{win,lose,hud,juice,cam_bottom,cam_mid,
+                           cam_top,assets,single_win,single_assets} [D-3c].
+                           (Ảnh trung gian r3b_* đã bị xoá nhầm lúc dọn dẹp
+                           D-3c — nội dung tương đương đã có trong r3c_*.)
 - Spec đầu vào đã dùng (KHÔNG sửa):
     Docs/MECHANIC_ORIGINAL.txt (Agent A), Docs/MECHANIC_CHANGES.txt (Agent B)
 
@@ -51,10 +328,27 @@ QUY ƯỚC ĐƠN VỊ: chiều rộng phòng ROOM_W = 10 world-unit  <=>  100%.
   => hằng PCT = 0.1 world-unit = 1% chiều rộng phòng. Mọi số "%/giây" của
   MECHANIC_CHANGES mục G được ghi trong CFG dưới dạng `<số> * PCT`.
   Sàn nằm trên mặt phẳng XZ (y=0); x = ngang, z = dọc (z âm = "lên" màn hình).
+  VIEW_H = 10*16/9 = 17.78 = chiều cao 1 màn hình 9:16 tính theo world-unit.
 
-CFG.room     w=10, h=17.78 (9:16), wallH=0.9, margin=0.55 (biên tâm entity)
-CFG.camera   tiltDeg=30 (nghiêng khỏi phương đứng), dist=40, fitMargin=1.06
-             -> OrthographicCamera, khung ngắm tính lại trong resize()
+CFG.room     w=10, h=VIEW_H*2=35.56 (2 màn hình), wallH=0.9,
+             margin=0.55 (biên tâm entity)                            [MOD-5 v2]
+CFG.camera   tiltDeg=30 (nghiêng khỏi phương đứng), dist=40, fitMargin=1.06,
+             followLerp=8 (tốc độ bám mượt theo z, 1/giây; 0 = bám tức thì)
+             -> OrthographicCamera; resize() đặt khung NGANG = room.w*fitMargin
+             (nửa = 5.3) rồi suy chiều dọc theo 9:16 (nửa = 9.422) — khung nhìn
+             = ĐÚNG 1 màn hình, KHÔNG ôm cả phòng.                    [MOD-5 v2]
+             Vùng nhìn quy về mặt sàn: viewHalfZ = camera.top / cos(30) = 10.88;
+             camLimitZ = room.h/2 - viewHalfZ = 6.898.
+             Hero khởi điểm z = room.h/2 - 2.5 = 15.28 (đầu DƯỚI phòng).
+CFG.camera   hudPadExtra=30 (px)                                     [MOD-6 v2]
+             -> clamp camZ KHÔNG đối xứng: mép DƯỚI vẫn trùng đáy phòng
+             (+camLimitZ = 6.898) nhưng mép TRÊN nới thêm hudPadZ() để dải HUD
+             không đè hero. hudPadZ() = (#hudTop.offsetHeight + hudPadExtra) /
+             stage.clientHeight * (2*viewHalfZ)  — ĐO TRỰC TIẾP TỪ DOM nên tự
+             khớp khi đổi CSS HUD. Ở khung 524x865: HUD cao 85px -> hudPadZ =
+             3.622; camLimitTopZ = 6.898 + 3.622 = 10.52.
+             => camZ ∈ [-10.52, +6.898]; ở đỉnh phòng mép trên khung nhìn là
+             -21.4 (vượt đỉnh phòng -17.778 đúng bằng dải HUD).
 CFG.hero     speed=35*PCT | hpMax=1000 | radius=0.34 | height=0.95     [mục G]
 CFG.arrow    speed=250*PCT | damage=100 | fireRate=2.5 phát/s          [mục G]
 CFG.slime    hp=400 | speed=12*PCT | touchDamage=80 | touchCd=1.0s     [mục G]
@@ -68,7 +362,33 @@ CFG.wave     count=5 | nextDelay=1.5s | spawnMinDistPct=25
 CFG.heart    dropChance=0.15 | heal=200 | pickRadius=0.55 | life=12s   [mục G]
 CFG.level    thresholds=[5,8,12,16] | cardCount=3
              atkBonus=0.25 | fireRateBonus=0.20 | hpBonus=300          [mục G/MOD-3]
-CFG.color    bảng màu primitive fallback
+CFG.juice    trailInterval=0.045s | trailLife=0.3s | windup=0.3s        [ADD-3][D-4]
+             bugPulse=0.12 — số Agent D tự chọn cho juice tối thiểu, KHÔNG
+             thuộc mục G (mục G không có mục juice). windup KHÔNG thay đổi
+             CFG.flower.fireInterval, chỉ thêm hiệu ứng phình ngay trước bắn.
+CFG.color    bảng màu primitive fallback + trail=0x9fd8ff, hitFlash=0xffffff
+             (thêm ở D-4 cho ADD-3)
+CFG.assetScale  [VÒNG D-3b→D-3c] hero=1, monster_flower=1, monster_bug=2.16
+             (bbox.h≈0.9), monster_slime=1, arrow=1 — nhân THÊM sau chuẩn hoá
+             theo chiều cao (normalizeToHeight()) hoặc chiều dài dọc Z
+             (normalizeToLengthZ(), riêng arrow) — KHÔNG đổi hitbox va chạm.
+ASSET_ROT_OFFSET / ASSET_ROT_OFFSET_X  [game_core.js, KHÔNG thuộc CFG — 2
+             bảng offset xoay Y/X riêng, xác định bằng ảnh tools/shot_
+             gallery.js, xem nhật ký D-3b/D-3c]:
+               hero: y=0 (mặt khớp +Z sẵn)
+               monster_flower: y=+90° (D-3b, miệng khớp +Z) + x=+90° (D-3c,
+                 duy nhất góc lộ rõ miệng/răng đứng thẳng)
+               monster_bug: y=0, x=0 — KHÔNG xác định được hướng (rig cuộn
+                 tròn ở bind-pose, không animation, không có đầu/đuôi rõ)
+               monster_slime: y=0, x=0 — hình tinh thể, không có mặt để soi
+               arrow: y=0, x=0 — trục dài "child" (sau khi gỡ shadow/trail/
+                 Public_Weapon05) đã nằm sẵn ở Z, không cần xoay
+             Bbox thực đo (test_assets.js, sau D-3c): hero 0.81x0.95x0.41
+             (target d0.68 h0.95); flower 0.98x1.11x1.14 (target d0.76
+             h1.14); bug 0.45x0.90x0.49 (target d0.64 h0.416, ×2.16); slime
+             0.70x0.59x0.80 (target d0.84 h0.588); arrow 0.25x0.25x1.0
+             (target d0.26 h1.0-dọc-Z). slime chưa tune assetScale (vẫn 1) —
+             để user tune tiếp nếu cần, xem mục 6.
 
 LƯU Ý: các số có ghi [mục G] là số ĐÃ CHỐT với user, Agent C KHÔNG được đổi.
 Việc tune thuộc phạm vi Agent D.
@@ -103,12 +423,42 @@ Trong game_core.js mỗi hàm áp dụng delta đều có comment `// [MOD-x]` t
     Bỏ hẳn ếch/ong/goblin/gấu; bỏ boss ........................... [DEL-2]
     Bỏ node đặc biệt (Vòng Quay/Valkyrie/Thiên Thần/Ác Quỷ/cuộn) .. [DEL-3]
 
- 5) Camera top-down nghiêng nhẹ CỐ ĐỊNH, thấy trọn phòng ........... [MOD-5]
-    initThree() + resize() — OrthographicCamera, KHÔNG follow, KHÔNG cuộn.
-    Phòng vừa đúng 1 màn hình 9:16.
+ 5) Camera top-down nghiêng nhẹ, FOLLOW hero theo trục z ........ [MOD-5 v2]
+    initThree() + resize() + viewHalfZ() + camLimitZ() + applyCamera() +
+    updateCamera(dt) — OrthographicCamera, khung nhìn = 1 màn hình 9:16, phòng
+    cao 2 màn hình nên camera cuộn theo hero CHỈ trên trục z, clamp ở 2 đầu.
+    updateCamera() gọi trong tick() NGAY SAU updateHero() và TRƯỚC updateTexts()
+    vì số damage nổi chiếu bằng camera.project(); applyCamera() phải tự gọi
+    camera.updateMatrixWorld(true) (render() chạy sau tick, không kịp cập nhật).
+    Đèn chính (dirLight) + dirTarget dịch theo camZ để frustum shadow (rộng
+    ±room.w, cao ±VIEW_H*0.8) luôn phủ đúng vùng đang nhìn.
+    [MOD-6 v2] clamp trên/dưới KHÔNG đối xứng nữa: updateCamera() dùng
+    camLimitZ() cho mép dưới và camLimitTopZ() = camLimitZ() + hudPadZ() cho
+    mép trên (chừa chỗ cho dải HUD).
+    Debug: __game._internal.camera / camLimitZ() / camLimitTopZ() / hudPadZ() /
+    viewHalfZ().
 
- 6) HUD wave rút gọn 2 dòng: "Đợt k/5" + "Quái còn X" .............. [MOD-6]
-    syncHUD(); thành phần 5 wave trong CFG.wave.list:
+ 6) HUD dựng theo Refs/Layout_1.png .............................. [MOD-6 v2]
+    game.html (#hudTop + CSS) + syncHUD() + buildWaveBar() + updateHeroBar() +
+    pause()/resume(). Thành phần:
+      (a) #btnPause góc trên trái -> pause(): đặt state.phase='paused' nên
+          tick() bỏ qua TOÀN BỘ update gameplay (chỉ chạy updateTexts) và hiện
+          overlay #ovPause có nút "Tiếp tục" (#btnResume -> resume()).
+      (b) #lvLine "Lv.k" + thanh XP #xpFill = xp/xpNeed() tới mốc kế (MAX ->
+          100%).
+      (c) #coinLine — HIỂN THỊ TĨNH 0, KHÔNG có cơ chế rơi/nhặt coin (đúng
+          spec, chỉ là placeholder giống layout).
+      (d) .mobIcon + #enemyLine = số quái còn sống của wave hiện tại.
+      (e) #waveRow: 5 ô .wv (icon kiếm chéo inline SVG, dựng 1 lần bởi
+          buildWaveBar()). Class trạng thái: .done (đợt đã dọn, nền xanh + dấu
+          ✔) | .current (đợt hiện tại, nền vàng + glow + phóng to) | .upcoming
+          (chưa tới, mờ opacity .34).
+      Thanh HP hero: #heroBar bám TRÊN ĐẦU HERO (đúng Layout_1.png gốc), chiếu
+      bằng camera.project() trong updateHeroBar() — KHÔNG còn nằm trên HUD.
+      Mọi icon vẽ bằng CSS/inline SVG, KHÔNG tải file ngoài (giữ self-contained).
+    BỎ: HUD 2 dòng chữ thuần của v1 (#waveLine/#enemyLine dạng chữ, #hpLine,
+    #xpLine, #hpFill đã xoá khỏi DOM).
+    Thành phần 5 wave trong CFG.wave.list (KHÔNG đổi):
       w1: 3 slime
       w2: 2 bọ đỏ + 2 hoa quái
       w3: 3 bọ đỏ + 2 slime
@@ -133,17 +483,80 @@ Trong game_core.js mỗi hàm áp dụng delta đều có comment `// [MOD-x]` t
 11) Va chạm: circle-circle 2D trên mặt sàn (dist2). Hero & quái bị tường
     chặn bằng clampToRoom(); separateEnemies() đẩy quái khỏi chồng nhau.
 
-12) AssetLoader tách riêng (RÀNG BUỘC mục D):
-    Assets.load()/make()/has(), ASSET_SIZE, normalizeToSize(), pickClips().
-    - Có window.FBX[key] -> atob -> ArrayBuffer -> THREE.FBXLoader().parse()
-      -> chuẩn hoá scale bằng Box3 về đúng ASSET_SIZE, canh đáy-tâm về gốc,
-      bọc trong Group để game logic set position không phá offset.
-    - Không có -> primitive màu thuần cùng kích thước (object Prim).
-    - Clip animation lấy theo tên chứa idle/run/attack (không phân biệt hoa
-      thường) -> Assets.clips(key). HIỆN CHƯA phát clip (xem mục 6).
+12) AssetLoader tách riêng (RÀNG BUỘC mục D) — [D-3/D-3b/D-3c] ĐÃ GẮN FBX
+    THẬT (TRỪ floor — đã bỏ khỏi AssetLoader từ D-3b, xem 12b bên dưới):
+    Assets.load()/make()/has()/clips(), ASSET_SIZE, ASSET_ROT_OFFSET +
+    ASSET_ROT_OFFSET_X (xem mục 2), CFG.assetScale, normalizeToHeight()/
+    normalizeToSize()/normalizeToLengthZ(), pickClips(), attachMixerIfAny().
+    - ASSET_KEYS = hero, monster_flower, monster_bug, monster_slime, arrow,
+      wall (KHÔNG còn 'floor' — xem 12b; wall vẫn thiếu file -> luôn
+      primitive).
+    - Có window.FBX[key] -> atob -> ArrayBuffer (cache 1 lần) -> THREE.FBXLoader
+      (LoadingManager riêng, setURLModifier trả FBX_TEX[key]/BLANK_TEX_URI cho
+      URL texture tham chiếu ngoài, giữ nguyên URL blob:/data: đã nhúng sẵn).
+      Model KHÔNG có node Texture nào (hero, 3 quái) -> applyTextureFallback()
+      gán map trực tiếp từ FBX_TEX[key]. RIÊNG arrow: hideArrowFxChildren() GỠ
+      HẲN (remove, không chỉ ẩn — xem nhật ký D-3c lý do) child tên khớp
+      /trail|shadow|eff|mask|weapon/i TRƯỚC khi đo bbox, rồi forceArrowMaterial()
+      ép MeshBasicMaterial màu CFG.color.arrow. Sau đó chuẩn hoá scale bằng
+      Box3: hero/monster_* qua normalizeToHeight() (chỉ ràng buộc chiều cao
+      Y, nhân CFG.assetScale[key]); arrow qua normalizeToLengthZ() (ràng buộc
+      chiều dài dọc Z, vì trục dài của "child" nằm ở Z); wall qua
+      normalizeToSize() (d+h) như cũ. Cộng ASSET_ROT_OFFSET_X[key] (trục X)
+      rồi ASSET_ROT_OFFSET[key] (trục Y), realignAfterRotation() canh lại
+      đáy/tâm nếu có xoay X. Bọc trong Group (g.userData.fbxRoot/fbxClips) để
+      game logic set position không phá offset.
+    - Entity CÓ rig (SkinnedMesh: hero + 3 quái) -> Assets.make() RE-PARSE
+      riêng từ buffer cache (KHÔNG .clone(true), vì lib KHÔNG có
+      THREE.SkeletonUtils để clone-rebind skeleton đúng) mỗi lần spawn — mỗi
+      entity có bộ xương độc lập, animation không dính nhau. Entity KHÔNG rig
+      (arrow) vẫn .clone(true) từ bản master đã xử lý 1 lần lúc load.
+    - Không có FBX -> primitive màu thuần cùng kích thước (object Prim), y hệt
+      trước VÒNG D-3.
+    - Clip animation lấy theo tên chứa idle(+hold)/run(+walk)/attack(+firehold
+      ưu tiên, +fire, +shoot) -> Assets.clips(key), cache 1 lần lúc load, DÙNG
+      CHUNG cho mọi entity cùng key (AnimationMixer bind theo tên node/bone).
+      attachMixerIfAny() CHỈ tạo AnimationMixer khi có ít nhất 1 clip khớp —
+      3 quái hiện tại KHÔNG có mixer (không có clip nào cả, xem mục 6).
     Game logic KHÔNG biết mesh đến từ FBX hay primitive.
-    Key ASSET_MAP: hero, monster_flower, monster_bug, monster_slime, arrow,
-    floor, wall.
+
+12b) SÀN — [VÒNG D-3b/D-3c] KHÔNG qua AssetLoader (floor.fbx bỏ hẳn khỏi
+    ASSET_MAP/ASSET_KEYS — Mesh_ShenMiaoRoom_13x25.fbx là 1 tranh nguyên khối
+    KHÔNG lát được, xem nhật ký D-3b). buildRoom() gọi thẳng
+    Assets.make('floor') -> LUÔN rơi vào nhánh primitive Prim.floor(): plane
+    CFG.room.w x CFG.room.h, material.map = makeFloorCropTexture() (nếu có
+    FBX_TEX.floor) hoặc checkerTexture() (fallback ca-rô cũ nếu không có
+    floor.png). makeFloorCropTexture(): crop vùng "sân đá" x300-740/y790-1370
+    (px, ảnh gốc 1024x2048, tránh viền gạch/sỏi) vẽ vào offscreen canvas (ảnh
+    load ASYNC qua Image.onload) -> THREE.CanvasTexture, wrapS/T =
+    MirroredRepeatWrapping (giấu đường nối tile), repeat=(room.w/5,
+    room.h/5)≈(2,7.11), encoding=sRGBEncoding. Tường: CFG.color.wall =
+    0x8b90a9 (xám đá gần viền gạch trong floor.png, đổi từ 0x5c6b80).
+
+13) Juice tối thiểu ................................................. [ADD-3][D-4]
+    (a) Số damage nổi khi quái/hero trúng đòn: ĐÃ CÓ SẴN từ trước (không phải
+        việc mới của vòng D-4) — damageEnemy()/damageHero() -> addText(),
+        hero dùng cls='hero' -> CSS .dmg.hero màu đỏ nhạt khác quái.
+    (b) updateTrail(dt) + initTrailPool()/spawnTrailNode()/clearTrail(): pool
+        cố định TRAIL_POOL_N=14 plane dẹt (groupFx) tái dùng vòng tròn
+        (round-robin qua trailRR), bật tại vị trí hero mỗi
+        CFG.juice.trailInterval khi hero.moving, mờ + co dần trong
+        CFG.juice.trailLife (~0.3s) rồi ẩn. reset() gọi clearTrail() để không
+        sót vệt cũ khi "Chơi lại".
+    (c) updateBug() nhánh 'telegraph': thêm phình thân (mesh.scale) theo
+        |sin(time*16)| trong lúc vòng đỏ (addRing, đã có từ MOD-4) đang hiện;
+        trả scale về 1 khi chuyển sang 'dash'. updateEnemies() nhánh hoa quái:
+        thêm e.windup (true khi fireCd <= CFG.juice.windup) phóng to dần mesh
+        tới lúc bắn rồi trả về 1 — KHÔNG đổi CFG.flower.fireInterval.
+    (d) cloneEntityMaterials(root) (gọi 1 LẦN lúc spawn trong makeHero()/
+        spawnEnemy(), KHÔNG mỗi frame): traverse mesh, clone material của
+        từng Mesh con, trả {mats, base(emissive gốc)} lưu vào e.fx/h.fx. Vì
+        mat() cache material theo màu (nhiều quái cùng loại vốn SHARE 1
+        material instance), nếu không clone thì applyHitFlash() sẽ làm TẤT
+        CẢ quái cùng loại nháy theo. damageEnemy()/damageHero() gọi
+        applyHitFlash(fx) (emissive -> CFG.color.hitFlash=trắng); khi
+        e.flash/h.flash rớt về 0 (trong updateEnemies()/updateHero()) gọi
+        clearHitFlash(fx) trả emissive về màu gốc.
 
 --------------------------------------------------------------------------------
 4. CÁCH BUILD & TEST (copy chạy được ngay, Git Bash)
@@ -178,13 +591,126 @@ CÁCH run.sh HOẠT ĐỘNG (không dùng npm package, không dùng CDP):
   CODE_RESULT). Dùng `--headless=new --virtual-time-budget=<waitMs>
   --enable-unsafe-swiftshader --window-size=540,960`. File tạm tự xoá.
   Cú pháp: bash tools/run.sh <html> <out.png> <waitMs> [test.js] [extra...]
+  CẢNH BÁO: [extra...] được ném thẳng cho Chrome. Truyền số kiểu "200 460 940"
+  làm Chrome hiểu là URL rác -> ready=false, shot=MISSING. Bỏ trống là đúng.
 
-KẾT QUẢ TEST THỰC TẾ (bản build này):
+# kiểm HUD mới + pause + hero ở đỉnh phòng không bị HUD che [MOD-6 v2]
+bash tools/run.sh ".../src/game.html" ".../src/shots/r2_after_wave3.png" 3000 \
+     tools/test_hud.js ""
+
+# kiểm juice [ADD-3][D-4]: trail, telegraph bọ + windup hoa, hit-flash quái/hero
+bash tools/run.sh ".../src/game.html" ".../src/shots/r4_juice_test.png" 3000 \
+     tools/test_juice.js
+
+# [D-3/D-3b/D-3c] kiểm swap FBX + texture + AnimationMixer (loaded/meshCount/
+# hasMap/bbox/clipNames/mixerCreated mỗi key; floorTexture; arrowRemainingMeshes)
+bash tools/run.sh ".../src/game.html" ".../src/shots/r3c_assets.png" 6000 \
+     tools/test_assets.js ""
+
+LƯU Ý ẢNH CHỤP: --window-size=540,960 nhưng VIEWPORT thật của Chrome headless
+  chỉ 524x865 (đo bằng window.innerWidth/innerHeight). Ảnh PNG luôn 540x960 nên
+  có dải ĐEN ở mép phải + mép dưới. Đó là artefact của harness, KHÔNG phải bug
+  layout: #stage = 487x865 phủ ĐÚNG hết chiều cao viewport, canvas = 100% stage,
+  hai dải mờ trái/phải 18.5px là letterbox 9:16 đúng thiết kế.
+
+KẾT QUẢ TEST_ASSETS (mới nhất, VÒNG D-3c — swap FBX/texture/AnimationMixer +
+tune scale/hướng):
+  test_assets: {"assets":{
+    "hero":{"loaded":true,"meshCount":1,"hasMap":true,
+      "bbox":{"w":0.807,"h":0.95,"d":0.408},"targetSize":{"d":0.68,"h":0.95},
+      "normalizeMode":"height-only",
+      "clipNames":{"idle":"Hold","run":null,"attack":"FireHold"},
+      "mixerCreated":true},
+    "monster_flower":{"loaded":true,"meshCount":1,"hasMap":true,
+      "bbox":{"w":0.975,"h":1.114,"d":1.14},"targetSize":{"d":0.76,"h":1.14},
+      "normalizeMode":"height-only",
+      "clipNames":{"idle":null,"run":null,"attack":null},"mixerCreated":false},
+    "monster_bug":{"loaded":true,"meshCount":1,"hasMap":true,
+      "bbox":{"w":0.45,"h":0.899,"d":0.494},"targetSize":{"d":0.64,"h":0.416},
+      "normalizeMode":"height-only",
+      "clipNames":{"idle":null,"run":null,"attack":null},"mixerCreated":false},
+    "monster_slime":{"loaded":true,"meshCount":1,"hasMap":true,
+      "bbox":{"w":0.698,"h":0.588,"d":0.797},"targetSize":{"d":0.84,"h":0.588},
+      "normalizeMode":"height-only",
+      "clipNames":{"idle":null,"run":null,"attack":null},"mixerCreated":false},
+    "arrow":{"loaded":true,"meshCount":1,"hasMap":false,
+      "bbox":{"w":0.248,"h":0.246,"d":1},"targetSize":{"d":0.26,"h":1},
+      "normalizeMode":"size(d+h)",
+      "clipNames":{"idle":null,"run":null,"attack":null},"mixerCreated":false},
+    "wall":{"loaded":false},
+    "floor":{"loadedFBX":false,"meshCount":1,"hasMap":true,"usesCropTexture":true}},
+    "arrowRemainingMeshes":["child"],
+    "arrowMaterial":{"type":"MeshBasicMaterial","color":"ffe680"},
+    "floorTexture":true,
+    "heroAnim":{"mixerCreated":true,"hasIdle":true,"hasRun":false,
+      "hasAttack":true}}
+  arrow hasMap=false NAY ĐÚNG Ý (MeshBasicMaterial màu phẳng, không cần map).
+  bug đã đạt bbox.h=0.899≈0.9 (assetScale=2.16); arrow bbox.d(dọc Z)=1.0 đúng
+  mục tiêu; slime CHƯA tune assetScale (vẫn bbox nhỏ hơn target ở trục ngang,
+  xem mục 6 — để user quyết có cần tune tiếp không).
+  Bản build ArcheroDemo.html chạy test_assets: kết quả TRÙNG KHỚP bản src ở
+  trên.
+
+KẾT QUẢ TEST THỰC TẾ (bản build này — sau VÒNG D-3c, gameplay/số KHÔNG đổi so
+với D-4, chỉ khác hình ảnh/scale/hướng asset):
+  test_juice: {"trailCountMoving":6,"trailCountAfterStop":0,
+               "bugTelegraph":{"found":true,"stateAfterEnter":"telegraph",
+                 "sawBodyPulse":true,"ringVisibleDuringTelegraph":true},
+               "flowerWindup":{"found":true,"fireIntervalUnchanged":true,
+                 "windupOn":true,"scaleDuringWindup":1.1955555555555555,
+                 "bulletFired":true,"windupOffAfterFire":false,
+                 "scaleAfterFire":1},
+               "enemyHitFlash":{"found":true,"otherFlashBefore":0,
+                 "otherEmissiveBefore":0,"flashRightAfterHit":0.1,
+                 "emissiveRightAfterHit":16777215,"otherFlashUnaffected":true,
+                 "otherEmissiveUnaffected":true,"flashAfterWait":0,
+                 "emissiveAfterWait":0},
+               "heroHitFlashAndDmgNumber":{"flashBefore":0,
+                 "flashRightAfterHit":0.12,"emissiveRightAfterHit":16777215,
+                 "dmgHeroDomAfterHit":1,"dmgHeroDomIncreased":true,
+                 "flashAfterWait":0,"emissiveAfterWait":0}}
+               emissiveRightAfterHit=16777215=0xffffff (trắng, đúng
+               CFG.color.hitFlash); otherFlashUnaffected/otherEmissiveUnaffected
+               =true chứng minh material clone riêng cách ly đúng.
   test_win :  {"won":true,"wave":5,"phase":"won","level":3,"heroHP":1000,
                "enemiesAlive":0,"cardPicks":2,"steps":462}
+               (heroHP dao động tuỳ card random rơi vào +HP mấy lần)
   test_lose:  {"lost":true,"phase":"lost","wave":1,"heroHP":0,
-               "enemiesAlive":3,"steps":632,"simSeconds":10.5}
+               "enemiesAlive":3,"steps":1837,"simSeconds":30.6}
+               (steps/simSeconds dao động do vị trí spawn random)
+  test_hud :  {"wave":3,"waveIconCount":5,
+               "waveIcons":["done","done","current","upcoming","upcoming"],
+               "enemyText":"5","enemiesAlive":5,"lvText":"Lv.2",
+               "xpBarPct":"25%","coinText":"0","oldHudGone":true,
+               "heroBarOnHero":true,"pauseCalled":true,"pausePhase":"paused",
+               "pauseOverlayShown":true,"pauseFrozen":true,"resumeCalled":true,
+               "resumePhase":"playing","resumeOverlayShown":false,
+               "resumeMoved":true,"hudBottomPx":114,"heroTopPx":144.06,
+               "heroBarTopPx":130.516,"heroClearOfHUD":true,"hudPadZ":3.622,
+               "limitZ":6.898,"limitTopZ":10.52,"steps":185}
+               pauseFrozen=true: 30 lần tick() khi paused (còn giữ phím 'up')
+               KHÔNG đổi hero x/z/hp, số quái, toạ độ quái, state.time.
+  test_cam_bottom: {"heroZ":17.228,"camZ":6.898,"limitZ":6.898,"limitTopZ":10.52,
+                    "clamped":true,"viewBottomZ":17.778}
+                    -> mép dưới khung = đúng đáy phòng (không đổi so với D-1)
+  test_cam_mid   : {"heroZ":0,"camZ":0,"clamped":false}
+  test_cam_top   : {"heroZ":-17.228,"camZ":-10.52,"limitTopZ":10.52,
+                    "clamped":true,"viewTopZ":-21.4}
+                    -> ĐỔI so với D-1 (trước là camZ=-6.898, viewTopZ=-17.778):
+                    mép trên khung vượt đỉnh phòng 3.622 world-unit = đúng dải
+                    HUD, nên hero ở đỉnh phòng hiện DƯỚI HUD.
   ArcheroDemo.html (bản single) chạy test_win: {"won":true,...,"heroHP":1300}
+  ArcheroDemo.html chạy test_hud: kết quả trùng khớp bản src.
+  ArcheroDemo.html chạy test_juice [D-4]: kết quả trùng khớp bản src ở trên.
+
+  [VÒNG D-3] Chạy lại TOÀN BỘ test trên với asset thật — số gameplay (won/
+  wave/level/enemiesAlive/waveIcons/hudPadZ/limitZ/limitTopZ/trailCount/
+  hitFlash/...) Y HỆT bảng trên, KHÔNG lệch (xác nhận không đổi mục G/CFG).
+  heroHP cuối test_win/steps/simSeconds test_lose dao động do RNG spawn/card
+  (đã ghi chú ở trên) — vd 1 lần chạy: test_win heroHP=1300, test_lose
+  steps=873/simSeconds=14.6 — vẫn PASS đúng tiêu chí (won/lost đúng, không
+  crash). test_win + test_assets trên ArcheroDemo.html (bản single, 18.5 MB)
+  cũng PASS, số liệu khớp bản src.
 
 --------------------------------------------------------------------------------
 5. API DEBUG (window.__game expose gì)
@@ -199,10 +725,21 @@ KẾT QUẢ TEST THỰC TẾ (bản build này):
   killAll()              — giết mọi quái đang sống (có tính XP + rơi tim)
   spawnWave(k)           — spawn đúng thành phần wave k (1..5)
   chooseCard(i)          — chọn card thứ i khi phase='levelup'
+  pause() / resume()     — [MOD-6 v2] tạm dừng / chơi tiếp. pause() chỉ ăn khi
+                           phase='playing', resume() chỉ ăn khi phase='paused';
+                           trả về true nếu đổi được state. Khi paused, tick()
+                           KHÔNG chạy update gameplay nào.
   getSnapshot()          — {wave, enemiesAlive, heroHP, heroHPMax, level, xp, phase}
-                           phase ∈ 'playing' | 'levelup' | 'won' | 'lost'
+                           phase ∈ 'playing' | 'paused' | 'levelup' | 'won' | 'lost'
   hasFBX(key)            — key đó đang dùng FBX thật hay primitive
-  _internal.{Assets,scene}
+  _internal.{Assets, ASSET_SIZE, scene, camera, camLimitZ(), camLimitTopZ(),
+             hudPadZ(), viewHalfZ()} — camera/clamp cho test_cam_* + test_hud
+                           ([MOD-5 v2][MOD-6 v2])
+  _internal.trailActiveCount() — số node vệt (trail) đang active, dùng cho
+                           test_juice.js                              [D-4]
+  _internal.floorTexture() — [D-3b] true nếu sàn đang dùng crop texture từ
+                           floor.png (makeFloorCropTexture()), false = fallback
+                           checkerTexture() ca-rô — dùng cho test_assets.js
   window.__NOSHADOW = true (đặt TRƯỚC khi game_core.js chạy) -> tắt shadow map,
   cần cho Chrome headless (software GL rất chậm).
 
@@ -210,37 +747,116 @@ KẾT QUẢ TEST THỰC TẾ (bản build này):
 6. GIỚI HẠN ĐÃ BIẾT / VIỆC LÀM TIẾP
 --------------------------------------------------------------------------------
 GIỚI HẠN
-- CHƯA CÓ FBX: window.FBX rỗng nên toàn bộ hình đang là primitive màu thuần
-  (hero capsule xanh + mũ trụ đen; slime cầu dẹt xanh lá; bọ đỏ box đỏ; hoa
-  quái trụ + cầu hồng; đạn capsule trắng; sàn plane lát ô canvas 2D; tường box
-  viền sáng). Đây là fallback ĐÚNG THEO mục D, không phải bug.
-- AnimationClip: đã có hàm dò clip idle/run/attack nhưng CHƯA gắn AnimationMixer
-  (vì chưa có FBX để biết tên/khung clip). Cần bổ sung khi swap asset thật.
-- three r136 KHÔNG có CapsuleGeometry -> tự ghép trụ + 2 chỏm cầu (capsuleGroup).
+- [VÒNG D-3] wall: vẫn CHƯA CÓ wall.fbx (user không export) -> tường vẫn là
+  primitive box viền sáng như cũ. Đây là fallback ĐÚNG THEO mục D, không phải
+  bug.
+- [D-3c] arrow: KHÔNG có arrow.png (user không export) -> KHÔNG cố lấy màu từ
+  FBX gốc nữa (cách D-3 cũ có thể vẫn ra tối tuỳ ánh sáng) — forceArrowMaterial()
+  ép LUÔN THREE.MeshBasicMaterial màu CFG.color.arrow=0xffe680, KHÔNG phụ
+  thuộc ánh sáng, luôn thấy rõ. Texture tham chiếu ngoài trong file gốc
+  (Bullet1001_Shadow.png, Weapon_Public_04.png, eff_bow_03.png) bị thay bằng
+  ảnh 1x1 rỗng (BLANK_TEX_URI) qua setURLModifier — không lỗi console vì
+  loader không cố tải path Windows tuyệt đối không tồn tại (dù vậy giờ không
+  quan trọng nữa vì material đã bị ép, không dùng map).
+- [VÒNG D-3] 3 quái (bug/flower/slime) CÓ rig (Deformer) nhưng file FBX
+  KHÔNG chứa animation clip thật nào (chỉ AnimStack template rỗng) — đứng
+  tĩnh hoàn toàn (không idle/run), KHÔNG tạo AnimationMixer (tránh mixer
+  rỗng). Nếu sau này user export thêm bản FBX có animation cho 3 quái này,
+  chỉ cần export đè lên đúng tên file, không cần sửa code (pickClips tự dò).
+- [VÒNG D-3] Hero (HeroKuLou.fbx) KHÔNG có clip tên "idle"/"run"/"walk" thật
+  (khác giả định ban đầu "Idle/Run/Death/Hit/SkillFire01") — pickClips() mở
+  rộng: idle = "Hold" (đứng cầm cung, dùng CHUNG cho cả lúc đứng lẫn di
+  chuyển vì không có clip run), attack = "FireHold" (fade-in 0.08s khi bắn,
+  LoopOnce, không lặp, không đổi CFG.arrow.fireRate). Danh sách ĐẦY ĐỦ tên
+  clip/AnimStack rút được từ HeroKuLou.fbx (grep -a trên binary, dò 2 lần
+  độc lập ra cùng kết quả): Anim_Public_Born, Anim_Public_Put, FireHold,
+  Hold, Put, SkillEnd, SkillPre, Take_001, jelly_Test, jelly_likebat,
+  jelly_likeflower, jelly_likeghost, jelly_likestone, jelly_likestonesmall1,
+  jelly_likestonesmall2, jelly_likestonesmall3, jelly_normal — TỔNG 17 TÊN
+  RIÊNG BIỆT (KHÔNG PHẢI 77 — con số 77 ở khảo sát đầu vòng là số lần chuỗi
+  "AnimStack"/"AnimationStack" xuất hiện trong cấu trúc binary FBX, tính cả
+  các node phụ trợ AnimationCurve/AnimationLayer lặp lại nhiều lần cho mỗi
+  clip, KHÔNG phải số clip thật). "Put"/"SkillPre"/"SkillEnd" nhiều khả năng
+  là combo skill khác (chưa map), "jelly_*" nhiều khả năng là animation dùng
+  chung từ rig mẫu (tên "KuLou"/jelly gợi ý hero gốc là 1 loại "thạch/sứa")
+  — CHƯA map vì pickClips hiện chỉ nhận đúng substring đã duyệt
+  (idle/hold/run/walk/attack/firehold/fire/shoot); muốn dùng "Put" làm animation
+  phụ (vd nhặt đồ) thì cần chốt lại tên/hành vi với user trước khi mở rộng
+  thêm.
+- three r136 KHÔNG có CapsuleGeometry -> tự ghép trụ + 2 chỏm cầu (capsuleGroup,
+  chỉ còn dùng khi fallback primitive).
+- [VÒNG D-3] three r136 trong lib KHÔNG có THREE.SkeletonUtils -> Assets.make()
+  RE-PARSE FBX riêng cho mỗi entity có rig (xem mục 3(12)) thay vì clone
+  skeleton thủ công. Cái giá: spawn 1 quái/hero tốn thêm 1 lần FBXLoader.parse()
+  (chỉ lúc spawn, không phải mỗi frame) — test_win (24 quái/5 wave) vẫn chạy
+  trong virtual-time-budget hiện có, không cần tăng.
+- [D-3b→D-3c] bbox 3 quái so với ASSET_SIZE mục G: bug đã tune assetScale=
+  2.16 -> bbox.h≈0.9 (khớp yêu cầu, xem mục 2). flower/slime CHƯA tune thêm
+  (assetScale=1) — flower bbox (0.98x1.11x1.14) đã gần targetSize; slime
+  bbox (0.70x0.59x0.80) vẫn nhỏ hơn targetSize (0.84x_x0.588) ở trục ngang do
+  bind-pose gốc không "gọn" như primitive cũ — CFG.assetScale.monster_slime
+  sẵn sàng để tune nếu user thấy cần (nhân trực tiếp, không đổi hitbox
+  CFG.slime.radius).
+- [D-3b→D-3c] floor.png là 1 TRANH VẼ TAY nguyên khối (sân đá + viền trang
+  trí cây/đá xung quanh), KHÔNG PHẢI hoạ tiết lặp gốc — ĐÃ XỬ LÝ bằng cách bỏ
+  hẳn floor.fbx, quay lại plane primitive với TEXTURE = vùng "sân đá" CROP
+  từ floor.png (x300-740/y790-1370, tránh viền gạch/sỏi) + MirroredRepeat
+  Wrapping (giấu đường nối tile) — xem nhật ký D-3b/D-3c, mục 12b. Xác nhận
+  qua shots/r3c_after_start.png / r3c_after_top.png: không còn vệt cam/viền
+  lộ rõ. Giới hạn còn lại: crop chỉ lấy 1 vùng đá xám đơn sắc tương đối đồng
+  đều — không có hoạ tiết chi tiết như sàn gốc, nhìn "trơn"/đơn giản hơn thiết
+  kế gốc (đánh đổi hợp lý để tránh rối mắt, đúng yêu cầu).
 - KHÔNG dùng fog: camera ortho đặt xa 40 unit nên fog theo khoảng cách nhuộm
   đen cả phòng (đã gặp và đã bỏ).
-- Chưa có juice của gốc: vệt cầu vồng khi chạy, cột sáng rarity, hiệu ứng lóe
-  khi trúng đòn, animation chết. Cố ý bỏ cho demo gọn.
-- Hero nhìn từ trên xuống bị "mũ" che phần lớn thân (góc nghiêng 30 độ). Sẽ tự
-  hết khi có FBX hero thật.
+- [D-4] ĐÃ CÓ juice tối thiểu theo [ADD-3]: số damage nổi (đã có sẵn từ
+  trước), vệt phía sau hero, telegraph bọ (ring + phình thân) + windup hoa,
+  hit-flash quái/hero. CỐ Ý CHƯA LÀM (đúng [ADD-3]/mục 6 gốc): KHÔNG vệt CẦU
+  VỒNG nhiều màu (chỉ 1 màu theo CFG.color.trail), KHÔNG cột sáng rarity,
+  KHÔNG animation chết (chỉ biến mất tức thì khi hp<=0, giữ nguyên từ trước).
+- [VÒNG D-3] Hero giờ là model thật (không còn "mũ" primitive che thân) —
+  nhìn top-down hero hiện ra như 1 khối tròn trắng (đầu/thân liền, thiết kế
+  gốc kiểu "thạch/sứa" theo tên jelly_* trong animation), không có chi tiết
+  tay/chân rõ khi đứng yên (pose "Hold" chủ yếu lộ phần đầu từ trên xuống).
 - Không có joystick ảo/touch (đúng MOD-1, chỉ bàn phím) -> demo chỉ chơi trên
   desktop.
 - run.sh dựa vào --dump-dom + --virtual-time-budget: test phải chạy ĐỒNG BỘ
   trong 1 lượt JS (gọi tick() thủ công), không dùng setTimeout dài.
+- [MOD-6 v2] ĐÃ XỬ LÝ ở vòng D-2 việc HUD che hero ở đỉnh phòng (camLimitTopZ
+  nới thêm hudPadZ). Hệ quả chấp nhận được: khi hero ở sát đỉnh phòng, phần
+  ngay dưới dải HUD là khoảng NGOÀI phòng (tường trên + nền clear color), bị
+  gradient tối của HUD phủ nên gần như không thấy.
+- [MOD-6 v2] Coin chỉ là số 0 tĩnh — đúng spec, KHÔNG có cơ chế rơi/nhặt coin.
+- [MOD-5 v2] Quái spawn trong TOÀN BỘ phòng (cao 2 màn hình) nên có thể ở ngoài
+  khung nhìn; hoa quái đứng yên ngoài khung vẫn bắn -> đạn bay vào từ mép. Đúng
+  spec, nhưng nếu playtest thấy khó chịu thì giới hạn spawn quanh camZ.
 
 VIỆC TIẾP THEO
-1. SWAP FBX KHI USER EXPORT: bỏ .fbx vào ArcheroDemo/Assets/ đúng tên
-   (hero.fbx, monster_flower.fbx, monster_bug.fbx, monster_slime.fbx,
-   arrow.fbx, floor.fbx, wall.fbx) -> chạy embed_fbx.js -> build_single.js.
-   KHÔNG cần sửa game logic. Chỉ cần kiểm lại ASSET_SIZE (kích thước chuẩn hoá)
-   và hướng "forward" của model: game quy ước forward = +Z, nếu FBX quay hướng
-   khác thì xoay trong Assets.make() (thêm offset rotation.y), đừng sửa logic.
+1. [D-3/D-3b/D-3c ĐÃ XONG] Swap FBX + texture + AnimationMixer cho hero/
+   monster_*/arrow + tune scale (assetScale)/hướng (ASSET_ROT_OFFSET[_X]) —
+   xem nhật ký D-3/D-3b/D-3c + mục 3(12)(12b) + mục 6. Floor KHÔNG dùng FBX
+   nữa (plane primitive + crop texture, xem 12b). Còn thiếu: wall.fbx (user
+   chưa export) — vẫn dùng fallback primitive box viền sáng. Nếu user export
+   bổ sung sau: bỏ wall.fbx vào Assets/ -> chạy lại embed_fbx.js ->
+   build_single.js, KHÔNG cần sửa code (đã có sẵn nhánh xử lý, chỉ có thể cần
+   thêm ASSET_ROT_OFFSET.wall nếu hướng sai — kiểm bằng shot_gallery.js).
+   monster_slime CHƯA tune CFG.assetScale (vẫn =1) — xem mục 6 nếu cần to
+   hơn.
 2. TUNE MỤC G (việc của Agent D): các số speed/HP/damage/cadence/XP hiện là
    khởi điểm tạm do user chốt, chưa playtest. Ưu tiên xem: nhịp bắn 2.5/s có
    quá chậm không; slime HP 400 với damage 100/phát = 4 phát/con; wave 5 có 7
    quái cùng lúc có quá nặng không; mốc XP 5/8/12/16 khiến demo chỉ lên tới
    Lv.3 (tổng 24 quái cả 5 wave < 25 XP cần cho Lv.4) — nếu muốn thấy đủ 4 lần
    chọn card thì phải hạ mốc XP hoặc tăng số quái.
-3. Bổ sung AnimationMixer + phát clip idle/run/attack sau khi có FBX.
-4. Cân nhắc thêm juice tối thiểu: nháy màu khi quái trúng đòn, animation chết.
+3. [D-4] Juice tối thiểu ([ADD-3]) đã xong (xem mục 3 (13) + nhật ký D-4).
+   Nếu cần thêm juice nâng cao hơn (vệt nhiều màu theo rarity, animation
+   chết, particle) thì đó là việc NGOÀI phạm vi [ADD-3] đã chốt, cần chốt
+   lại với user trước khi làm.
+4. [VÒNG D-3] Floor texture quá rối (xem mục 6) — nếu user muốn sàn "sạch"
+   hơn, cần chốt phương án (texture tileable riêng / crop lại ảnh gốc /
+   chấp nhận như hiện tại) trước khi Agent D làm tiếp.
+5. [VÒNG D-3] 3 quái (bug/flower/slime) chưa có animation, hero chưa có clip
+   run thật — nếu user export thêm bản FBX có animation đầy đủ hơn, chỉ cần
+   export đè đúng tên file rồi chạy lại embed_fbx.js, pickClips tự dò lại
+   (không cần sửa code, trừ khi tên clip mới nằm ngoài các substring đã hỗ
+   trợ, xem danh sách 17 tên clip HeroKuLou ở mục 6 để đối chiếu).
 ================================================================================

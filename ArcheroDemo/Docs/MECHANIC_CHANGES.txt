@@ -2,6 +2,8 @@
  MECHANIC_CHANGES — THAY ĐỔI MECHANIC SO VỚI GỐC (do Agent B sinh ra)
  Ngày: 2026-09-07
 ================================================================================
+Bản v2 — sửa sau play-test v1 ngày 2026-09-07: MOD-5, MOD-6 đảo lại; thêm ADD-3.
+--------------------------------------------------------------------------------
 HƯỚNG DẪN ĐIỀN: File này chỉ ghi DELTA (phần KHÁC so với MECHANIC_ORIGINAL.txt).
 KHÔNG chép lại toàn bộ mechanic gốc. Agent C áp dụng: GỐC + DELTA = game demo.
 Mỗi thay đổi 1 dòng/khối, có ID để bug-fix sau này trỏ tới được.
@@ -20,6 +22,19 @@ A. THÊM MỚI (không có trong game gốc)
         phòng (spawn lại từ wave 1, reset HP/XP/vị trí hero).
         | Lý do: yêu cầu user (mục F đã chốt) | Ưu tiên: cao
         | ĐÃ CHỐT VỚI USER
+
+[ADD-3] Juice tối thiểu (dựa mục 6 MECHANIC_ORIGINAL):
+        (a) Số sát thương nổi (floating damage number) bay lên và mờ dần khi
+            quái trúng đòn VÀ khi hero trúng đòn.
+        (b) Vệt (trail) màu phía sau hero khi di chuyển.
+        (c) Telegraph trực quan trước đòn tấn công của quái: bọ đỏ cận
+            chiến có vòng/nháy cảnh báo trong 0.6s trước khi lao (kế thừa
+            telegraph vòng đỏ của gốc, xem MOD-4); hoa quái tầm xa có báo
+            hiệu ngắn trước khi bắn.
+        (d) Quái nháy sáng (hit flash) khi trúng đòn.
+        KHÔNG làm animation chết, KHÔNG cột sáng rarity (khác mục 6 gốc).
+        | Lý do: play-test v1 thiếu cảm giác đánh | Ưu tiên: vừa
+        | ĐÃ CHỐT VỚI USER 2026-09-07 sau play-test v1
 
 --------------------------------------------------------------------------------
 B. SỬA ĐỔI (có ở gốc nhưng làm khác đi)
@@ -63,29 +78,51 @@ B. SỬA ĐỔI (có ở gốc nhưng làm khác đi)
         | Lý do: yêu cầu user thu hẹp bộ quái cho demo | Ưu tiên: cao
         | ĐÃ CHỐT VỚI USER
 
-[MOD-5] Gốc: phòng cao hơn 1 màn hình, camera top-down nghiêng nhẹ CUỘN
+[MOD-5] SỬA LẠI (đảo quyết định cũ, xem bản v1 bên dưới) — ĐÃ CHỐT VỚI USER
+        2026-09-07 sau play-test v1:
+        Gốc: phòng cao hơn 1 màn hình, camera top-down nghiêng nhẹ CUỘN
         theo hero khi di chuyển lên trên; rìa phòng đổi biome/đảo bay sau
         boss
-        -> Demo: phòng vừa ĐÚNG 1 màn hình, tỉ lệ dọc 9:16 (theo
-        Layout_1.png), camera top-down nghiêng nhẹ CỐ ĐỊNH — KHÔNG follow,
-        KHÔNG cuộn theo hero. KHÔNG có biome/đảo bay chuyển đổi (chỉ 1
-        phòng, xem MOD-2).
-        | Lý do: yêu cầu user "phòng vừa 1 màn hình" | Ưu tiên: cao
-        | ĐÃ CHỐT VỚI USER
+        -> Demo (v2): phòng rộng 10 world-unit (giữ như v1), CAO 2 màn
+        hình 9:16 (h ≈ 35.56 unit, tức 2 × 17.78). Camera giữ
+        OrthographicCamera nghiêng 30°, khung ngang vừa đúng chiều rộng
+        phòng, FOLLOW hero CHỈ theo trục dọc (z), clamp để khung nhìn
+        không vượt ra ngoài 2 đầu phòng (hero ở gần mép trên/dưới thì
+        camera dừng). Hero bắt đầu ở đầu dưới phòng. Quái spawn trong
+        toàn bộ phòng, giữ quy tắc spawnMinDistPct tính theo chiều rộng.
+        KHÔNG có biome/đảo bay chuyển đổi (chỉ 1 phòng, xem MOD-2).
+        | Lý do: play-test v1 thấy phòng vừa 1 màn hình quá chật, không
+        giống cảm giác gốc | Ưu tiên: cao
+        Bản v1 (đã BỎ, ghi lại để tham chiếu lịch sử): phòng vừa ĐÚNG 1
+        màn hình, tỉ lệ dọc 9:16, camera CỐ ĐỊNH — KHÔNG follow, KHÔNG
+        cuộn theo hero.
 
-[MOD-6] Gốc: thanh "Đợt" gồm chuỗi icon kiếm chéo+số/vương miện/boss + bộ
-        đếm quái dạng "X/50" cuối chuỗi
-        -> Demo: HUD wave rút gọn còn 2 dòng chữ: "Đợt k/5" (k = wave hiện
-        tại, 1-5) và "Quái còn X" (X = số quái còn sống trong wave hiện
-        tại). BỎ hẳn bộ đếm kiểu "X/50" và icon kiếm+số của gốc.
-        Thành phần 5 wave (3-5 quái/wave, tăng dần độ khó):
+[MOD-6] SỬA LẠI (đảo quyết định cũ, xem bản v1 bên dưới) — ĐÃ CHỐT VỚI USER
+        2026-09-07 sau play-test v1:
+        Gốc: thanh "Đợt" gồm chuỗi icon kiếm chéo+số/vương miện/boss + bộ
+        đếm quái dạng "X/50" cuối chuỗi; HUD trên cùng: nút pause (trái) |
+        Lv.X + thanh XP (giữa) | coin (phải) (mục 2 MECHANIC_ORIGINAL)
+        -> Demo (v2): HUD làm giống Layout_1.png, gồm:
+        (a) Nút Pause góc trên trái — bấm dừng game, hiện overlay có nút
+            "Tiếp tục".
+        (b) Chỉ số Lv + thanh XP tiến trình tới mốc kế.
+        (c) Bộ đếm coin — CHỈ hiển thị tĩnh số 0, KHÔNG thêm cơ chế
+            rơi/nhặt coin (placeholder giống layout).
+        (d) Icon quái + số quái còn sống trong wave hiện tại.
+        (e) Thanh Đợt: 5 icon kiếm chéo, đợt hiện tại sáng nổi bật, đợt
+            đã dọn đánh dấu xong, đợt chưa tới mờ.
+        BỎ HUD 2 dòng chữ thuần của v1, BỎ bộ đếm "X/50" của gốc.
+        | Lý do: play-test v1 HUD chữ thuần quá sơ sài | Ưu tiên: vừa
+        Bản v1 (đã BỎ, ghi lại để tham chiếu lịch sử): HUD wave rút gọn
+        còn 2 dòng chữ: "Đợt k/5" (k = wave hiện tại, 1-5) và "Quái còn X"
+        (X = số quái còn sống trong wave hiện tại).
+        Thành phần 5 wave (3-5 quái/wave, tăng dần độ khó) — GIỮ NGUYÊN
+        không đổi:
           w1: 3 slime xanh
           w2: 2 bọ đỏ + 2 hoa quái
           w3: 3 bọ đỏ + 2 slime xanh
           w4: 2 hoa quái + 3 bọ đỏ
           w5: 2 hoa quái + 3 bọ đỏ + 2 slime xanh
-        | Lý do: yêu cầu user, đơn giản hóa HUD wave cho demo 1 phòng
-        | Ưu tiên: vừa | ĐÃ CHỐT VỚI USER
 
 --------------------------------------------------------------------------------
 C. BỎ ĐI (có ở gốc, demo không làm)
