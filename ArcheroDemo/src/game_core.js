@@ -119,6 +119,65 @@ var CFG = {
     bugPulse: 0.12         // biên độ phình thân bọ đỏ lúc telegraph  [ADD-3(c)]
   },
 
+  // --- [VÒNG D-5] 4 SKILL người chơi bấm (phím 1-4 / 4 nút HUD góc dưới-phải).
+  // MỌI số liệu skill nằm ở đây, KHÔNG hardcode rải rác trong logic. Damage
+  // luôn tính theo BỘI SỐ của 1 mũi tên thường (arrowDmg() = CFG.arrow.damage
+  // * state.stat.atkMul) nên card "Tấn Công +25%" tự động buff cả skill.
+  skill: {
+    shakeMag: 0.16,              // biên độ rung camera (world-unit) lúc t=0
+    fire: {                      // (1) Cầu Lửa
+      cd: 6.0,
+      speed: 180 * PCT,          // 180% chiều rộng phòng / giây
+      range: 12,                 // tầm bay tối đa (world-unit)
+      radius: 0.35,              // bán kính quả cầu (cũng là bán kính va chạm)
+      aoe: 2.0,                  // bán kính nổ
+      dmgMul: 3.0,               // trúng trực tiếp = 3x mũi tên (mỗi quái 1 lần)
+      aoeDmgMul: 2.0,            // trong vùng nổ = 2x mũi tên
+      trailLen: 1.9, trailW: 0.8,
+      // vòng tròn sáng của vfx_ring nằm THỤT vào trong khung ảnh -> phải scale
+      // plane to hơn đường kính AOE thật (đo bằng ảnh vòng 2) thì vòng vẽ ra
+      // mới trùng bán kính sát thương.
+      ringLife: 0.35, ringFade: 0.2, ringTexFit: 1.3,
+      shake: 0.15,
+      color: 0xff8a1e
+    },
+    ice: {                       // (2) Băng Nổ
+      cd: 8.0,
+      radius: 3.5,
+      dmgMul: 1.0,
+      slowPct: 0.6,              // giảm 60% tốc độ
+      slowTime: 3.0,
+      ringLife: 0.4, ringFade: 0.18, ringTexFit: 1.3,   // xem CFG.skill.fire.ringTexFit
+      color: 0x4fe0ff,
+      tint: 0x1d5f7a,            // emissive tint quái đang bị slow
+      iconSize: 0.55, iconY: 1.35
+    },
+    thunder: {                   // (3) Sét Xích
+      cd: 5.0,
+      range: 8.0,                // tầm tìm mục tiêu ĐẦU TIÊN
+      jumpRange: 4.0,            // bán kính nhảy sang mục tiêu kế
+      maxTargets: 4,
+      dmgMul: [2.5, 2.0, 1.5, 1.0],
+      segDelay: 0.06,            // 60ms lệch pha giữa 2 đoạn -> cảm giác "xích"
+      segLife: 0.3, segW: 0.95,  // [đo bằng ảnh vòng 1] 0.62 quá mảnh, nhìn như vệt xước
+      skyH: 3.0,                 // đoạn đầu xuất phát từ y=3 (như sét đánh xuống)
+      sparkLife: 0.25, sparkSize: 0.95,   // [ảnh vòng 2] 1.15 còn to, che quái
+      shake: 0.12,
+      color: 0xffe14a
+    },
+    poison: {                    // (4) Mây Độc
+      cd: 10.0,
+      radius: 2.5,
+      life: 4.0,
+      tickInterval: 0.5,
+      dmgMul: 0.6,
+      clusterR: 2.5,             // bán kính đếm cụm quái đông nhất
+      dropAhead: 3.0,            // không có quái -> thả trước mặt hero 3 unit
+      bubbles: 5, bubbleRise: 1.2, bubbleSize: 0.6,
+      color: 0xa14bff
+    }
+  },
+
   // --- [VÒNG D-3b] Hệ số scale THÊM cho từng asset FBX (nhân sau khi đã
   // chuẩn hoá theo chiều cao — xem normalizeToHeight()/normalizeToSize()) để
   // Agent D/user tune độ lớn thị giác mà KHÔNG đổi hitbox va chạm (CFG.hero/
@@ -607,6 +666,72 @@ function makeFloorCropTexture() {
 }
 
 // ---------------------------------------------------------------------------
+// 2b. [VÒNG D-5] Texture rời (KHÔNG qua FBX) + helper dựng plane/billboard VFX
+//     Mọi ảnh dùng cho skill nằm sẵn trong window.FBX_TEX (data URI PNG).
+//     texFromURI() cache theo key -> KHÔNG tạo lại THREE.Texture mỗi lần bắn.
+// ---------------------------------------------------------------------------
+var _texCache = {};
+function texFromURI(key) {
+  if (Object.prototype.hasOwnProperty.call(_texCache, key)) return _texCache[key];
+  var TEX = (typeof window !== 'undefined' && window.FBX_TEX) ? window.FBX_TEX : {};
+  var uri = TEX[key];
+  if (!uri) { _texCache[key] = null; return null; }
+  var t = new THREE.TextureLoader().load(uri);
+  t.encoding = THREE.sRGBEncoding;
+  _texCache[key] = t;
+  return t;
+}
+
+/* Geometry dùng chung cho MỌI plane VFX (unit 1x1, kích thước thật đặt bằng
+   mesh.scale) — cache 1 instance duy nhất, KHÔNG dispose (không thể rò rỉ). */
+var _unitPlaneGeo = null;
+function unitPlaneGeo() {
+  if (!_unitPlaneGeo) _unitPlaneGeo = new THREE.PlaneGeometry(1, 1);
+  return _unitPlaneGeo;
+}
+
+/* Camera ortho nghiêng CỐ ĐỊNH tiltDeg khỏi phương thẳng đứng => góc xoay X
+   để plane quay thẳng mặt vào camera là 1 HẰNG SỐ (không cần billboard động
+   mỗi frame). */
+function billboardRotX() { return (CFG.camera.tiltDeg * Math.PI / 180) - Math.PI / 2; }
+
+/* Tạo 1 plane VFX có texture.
+   opt = { tex, color, additive, opacity, w, h, ground, billboard, cloneTex }
+     ground    : nằm ngửa trên sàn (rotation.x = -90°)
+     billboard : dựng đứng quay mặt vào camera
+     cloneTex  : clone texture riêng (cần khi phải chỉnh offset/repeat, vd
+                 chọn 1 ô trong sheet 2x2 vfx_spark) — sẽ được dispose khi hết
+                 đời qua userData.ownTex. */
+function makeFxPlane(opt) {
+  var tex = opt.tex ? texFromURI(opt.tex) : null;
+  if (tex && opt.cloneTex) { tex = tex.clone(); tex.needsUpdate = true; }
+  var m = new THREE.MeshBasicMaterial({
+    map: tex, color: (opt.color == null ? 0xffffff : opt.color),
+    transparent: true, opacity: (opt.opacity == null ? 1 : opt.opacity),
+    depthWrite: false, side: THREE.DoubleSide,
+    blending: opt.additive ? THREE.AdditiveBlending : THREE.NormalBlending
+  });
+  var mesh = new THREE.Mesh(unitPlaneGeo(), m);
+  mesh.scale.set(opt.w || 1, opt.h || opt.w || 1, 1);
+  if (opt.ground) mesh.rotation.x = -Math.PI / 2;
+  else if (opt.billboard) mesh.rotation.x = billboardRotX();
+  mesh.userData.ownTex = !!(tex && opt.cloneTex);
+  return mesh;
+}
+
+/* Plane NẰM SÀN có trục DÀI của ẢNH (trục X của texture) chạy dọc theo hướng
+   yaw `a` (quy ước game: a = atan2(dx,dz), 0 = +Z). Dùng cho vệt cầu lửa và
+   các đoạn sét nối 2 điểm.
+   Cách làm: rotation.x = -90° (ngửa lên) rồi rotateZ(+90°) TRONG hệ cục bộ ->
+   trục X cục bộ (đã scale = chiều dài) được ánh xạ về -Z thế giới; bọc trong
+   Group xoay yaw = a để -Z cục bộ chỉ đúng hướng mong muốn. */
+function makeStripPlane(texKey, color, len, wid, additive) {
+  var p = makeFxPlane({ tex: texKey, color: color, additive: additive, w: len, h: wid, ground: true });
+  p.rotateZ(Math.PI / 2);
+  return p;
+}
+
+// ---------------------------------------------------------------------------
 // 3. Scene / Camera / Ánh sáng
 // ---------------------------------------------------------------------------
 var NOSHADOW = (typeof window !== 'undefined' && window.__NOSHADOW === true);
@@ -728,8 +853,11 @@ function camLimitTopZ() {
 /* Đặt camera + đèn theo camZ hiện tại. */
 function applyCamera() {
   var t = CFG.camera.tiltDeg * Math.PI / 180;
-  camera.position.set(0, CFG.camera.dist * Math.cos(t), camZ + CFG.camera.dist * Math.sin(t));
-  camera.lookAt(0, 0, camZ);
+  // [VÒNG D-5] Screen shake: TỊNH TIẾN cả vị trí camera lẫn điểm nhìn cùng một
+  // lượng (_shakeX/_shakeY) -> chỉ rung khung hình, KHÔNG đổi hướng nhìn và
+  // KHÔNG đụng tới camZ nên clamp camLimitZ()/camLimitTopZ() vẫn nguyên vẹn.
+  camera.position.set(_shakeX, CFG.camera.dist * Math.cos(t) + _shakeY, camZ + CFG.camera.dist * Math.sin(t));
+  camera.lookAt(_shakeX, _shakeY, camZ);
   // project() trong updateTexts() chạy TRƯỚC render() nên phải tự cập nhật
   // matrixWorldInverse ngay tại đây, nếu không thanh máu/số damage sẽ lệch.
   camera.updateMatrixWorld(true);
@@ -830,7 +958,13 @@ function freshState() {
     cards: [],
     stat: { atkMul: 1, fireMul: 1, hpBonus: 0 },
     kills: 0,
-    trailTimer: 0            // [ADD-3](b) đếm ngược tới lần rơi vệt kế
+    trailTimer: 0,           // [ADD-3](b) đếm ngược tới lần rơi vệt kế
+    // --- [VÒNG D-5] hệ skill ---
+    skills: freshSkills(),   // 4 ô cooldown, xem SKILL_DEFS
+    skillFx: [],             // VFX tạm (ring/mask/bolt/spark...) — tự huỷ khi hết đời
+    skillPending: [],        // hành động hẹn giờ (đoạn sét lệch pha 60ms)
+    fireballs: [],           // cầu lửa đang bay
+    clouds: []               // mây độc đang tồn tại
   };
 }
 
@@ -911,13 +1045,22 @@ function keyDir(code) {
 }
 function initInput() {
   window.addEventListener('keydown', function (e) {
-    var d = keyDir(e.code); if (d) { input[d] = true; e.preventDefault(); }
+    var d = keyDir(e.code); if (d) { input[d] = true; e.preventDefault(); return; }
+    // [VÒNG D-5] phím 1-4 dùng skill: ONE-SHOT — giữ phím sinh keydown lặp,
+    // chặn bằng _skillKeyHeld để không cast liên tục.
+    var si = skillIndexFromCode(e.code);
+    if (si >= 0) {
+      e.preventDefault();
+      if (!_skillKeyHeld[e.code]) { _skillKeyHeld[e.code] = true; castSkill(si); }
+    }
   });
   window.addEventListener('keyup', function (e) {
-    var d = keyDir(e.code); if (d) { input[d] = false; e.preventDefault(); }
+    var d = keyDir(e.code); if (d) { input[d] = false; e.preventDefault(); return; }
+    if (skillIndexFromCode(e.code) >= 0) { _skillKeyHeld[e.code] = false; e.preventDefault(); }
   });
   window.addEventListener('blur', function () {
     input.up = input.down = input.left = input.right = false;
+    _skillKeyHeld = {};                       // [VÒNG D-5]
   });
 }
 
@@ -961,6 +1104,7 @@ function spawnEnemy(type) {
           mesh: Assets.make('monster_flower') };
   }
   e.x = p.x; e.z = p.z; e.flash = 0;
+  e.slow = 0; e.slowIcon = null;             // [VÒNG D-5] Băng Nổ
   e.fx = cloneEntityMaterials(e.mesh);      // [ADD-3](d) hit-flash riêng từng quái
   e.anim = attachMixerIfAny(e.mesh);        // [VÒNG D-3] null hiện tại (3 quái không có clip)
   e.mesh.position.set(e.x, 0, e.z);
@@ -980,6 +1124,7 @@ function tick(dt) {
   state.time += dt;
 
   updateHero(dt);
+  updateSkills(dt);                // [VÒNG D-5] cooldown + cầu lửa + mây độc + VFX + shake
   updateTrail(dt);                 // [ADD-3](b) vệt di chuyển
   updateCamera(dt);               // [MOD-5 v2] follow trục z, trước updateTexts
   updateEnemies(dt);
@@ -1093,11 +1238,20 @@ function updateEnemies(dt) {
     if (e.anim) e.anim.mixer.update(dt);   // [VÒNG D-3] hiện tại luôn null (quái không có clip), giữ tổng quát
     var wasFlash = e.flash > 0;                       // [ADD-3](d) hit-flash
     e.flash = Math.max(0, e.flash - dt);
-    if (wasFlash && e.flash <= 0) clearHitFlash(e.fx);
+    // [VÒNG D-5] Băng Nổ: đếm ngược slow. Hit-flash và tint-slow DÙNG CHUNG
+    // kênh emissive nên phải đi qua refreshEnemyTint(): hết flash mà VẪN đang
+    // slow thì quay về tint xanh, không về màu gốc.
+    var wasSlow = e.slow > 0;
+    if (wasSlow) {
+      e.slow = Math.max(0, e.slow - dt);
+      if (e.slow <= 0) removeSlowIcon(e);
+      else updateSlowIcon(e);
+    }
+    if ((wasFlash && e.flash <= 0) || (wasSlow && e.slow <= 0)) refreshEnemyTint(e);
 
     if (e.type === 'slime') {
       // Slime: đi chậm về hero, gây damage khi chạm (có cooldown)
-      moveToward(e, h.x, h.z, e.speed * dt);
+      moveToward(e, h.x, h.z, enemySpeed(e) * dt);
       e.touchCd -= dt;
       var rr = e.r + h.r;
       if (dist2(e.x, e.z, h.x, h.z) <= rr * rr && e.touchCd <= 0) {
@@ -1136,7 +1290,7 @@ function updateEnemies(dt) {
 function updateBug(e, dt, h) {
   e.t -= dt;
   if (e.st === 'chase') {
-    moveToward(e, h.x, h.z, e.speed * dt);
+    moveToward(e, h.x, h.z, enemySpeed(e) * dt);     // [VÒNG D-5] nhân hệ số slow
     e.mesh.rotation.y = Math.atan2(h.x - e.x, h.z - e.z);
     var rr = CFG.bug.attackRange;
     if (dist2(e.x, e.z, h.x, h.z) <= rr * rr) {
@@ -1158,8 +1312,9 @@ function updateBug(e, dt, h) {
       e.mesh.scale.setScalar(1);
     }
   } else if (e.st === 'dash') {
-    e.x += e.dx * CFG.bug.dashSpeed * dt;
-    e.z += e.dz * CFG.bug.dashSpeed * dt;
+    var ds = CFG.bug.dashSpeed * slowFactor(e);      // [VÒNG D-5] lao cũng bị slow
+    e.x += e.dx * ds * dt;
+    e.z += e.dz * ds * dt;
     if (e.t <= 0) { e.st = 'cool'; e.t = CFG.bug.cooldown; }
   } else {
     if (e.t <= 0) e.st = 'chase';
@@ -1233,13 +1388,549 @@ function updateRings(dt) {
   }
 }
 
+// ===========================================================================
+// 7b. [VÒNG D-5] HỆ 4 SKILL NGƯỜI CHƠI BẤM
+//     Phím 1/2/3/4 (one-shot trên keydown, giữ phím KHÔNG lặp) hoặc 4 nút HUD
+//     góc dưới-phải. Chỉ hiệu lực khi state.phase === 'playing' và cd = 0.
+//     Hero KHÔNG cần đứng yên. Mọi số liệu ở CFG.skill.
+// ===========================================================================
+var SKILL_DEFS = [
+  { id: 'fire',    icon: 'skill_fire',    key: 'Digit1' },
+  { id: 'ice',     icon: 'skill_ice',     key: 'Digit2' },
+  { id: 'thunder', icon: 'skill_thunder', key: 'Digit3' },
+  { id: 'poison',  icon: 'skill_poison',  key: 'Digit4' }
+];
+
+function freshSkills() {
+  var a = [];
+  for (var i = 0; i < SKILL_DEFS.length; i++) {
+    a.push({ id: SKILL_DEFS[i].id, cd: 0, cdMax: CFG.skill[SKILL_DEFS[i].id].cd });
+  }
+  return a;
+}
+
+/* Damage 1 mũi tên thường ở thời điểm hiện tại — mọi damage skill là bội số
+   của nó (card "Tấn Công +25%" tự động buff theo). */
+function arrowDmg() { return Math.round(CFG.arrow.damage * state.stat.atkMul); }
+
+// --- Rung màn hình (dùng ở applyCamera) ------------------------------------
+var _shakeT = 0, _shakeMax = 0, _shakeX = 0, _shakeY = 0;
+function shakeCam(t) { if (t > _shakeT) { _shakeT = t; _shakeMax = t; } }
+function updateShake(dt) {
+  if (_shakeT <= 0) return;
+  _shakeT = Math.max(0, _shakeT - dt);
+  if (_shakeT <= 0) { _shakeX = 0; _shakeY = 0; return; }
+  var m = CFG.skill.shakeMag * (_shakeMax > 0 ? _shakeT / _shakeMax : 0);
+  _shakeX = rnd(-m, m); _shakeY = rnd(-m, m);
+}
+
+// --- Kho VFX tạm: mọi mesh đều tự gỡ khỏi scene + dispose material khi hết đời
+//     (geometry là unitPlaneGeo() dùng chung, không dispose). ----------------
+/* holder: object thật được add vào groupFx (khi plane nằm trong 1 Group khung
+   xoay, vd đoạn sét) — gỡ holder mới không để lại Group rỗng trong scene. */
+function addFx(mesh, life, upd, holder) {
+  var root = holder || mesh;
+  groupFx.add(root);
+  var o = { mesh: mesh, root: root, mat: mesh.material, life: life, max: life, t: 0, upd: upd };
+  state.skillFx.push(o);
+  return o;
+}
+/* Chỉ giải phóng material (+ texture clone riêng); geometry là unitPlaneGeo()
+   dùng chung nên KHÔNG dispose. */
+function disposeFxPlane(mesh) {
+  var m = mesh.material;
+  if (m) {
+    if (m.map && mesh.userData.ownTex) m.map.dispose();
+    m.dispose();
+  }
+}
+function disposeFx(o) { groupFx.remove(o.root); disposeFxPlane(o.mesh); }
+function updateSkillFx(dt) {
+  for (var i = state.skillFx.length - 1; i >= 0; i--) {
+    var o = state.skillFx[i];
+    o.life -= dt; o.t += dt;
+    if (o.life <= 0) { disposeFx(o); state.skillFx.splice(i, 1); continue; }
+    if (o.upd) o.upd(o);
+  }
+}
+function purgeSkillFx() {
+  if (!state || !state.skillFx) return;
+  for (var i = 0; i < state.skillFx.length; i++) disposeFx(state.skillFx[i]);
+  state.skillFx.length = 0;
+  state.skillPending.length = 0;
+}
+
+// --- Slow (Băng Nổ): tint + icon băng trên đầu ------------------------------
+function slowFactor(e) { return (e && e.slow > 0) ? (1 - CFG.skill.ice.slowPct) : 1; }
+function enemySpeed(e) { return e.speed * slowFactor(e); }
+
+function setEmissive(fx, hex) {
+  if (!fx) return;
+  for (var i = 0; i < fx.mats.length; i++) if (fx.mats[i].emissive) fx.mats[i].emissive.setHex(hex);
+}
+/* Hit-flash và tint-slow dùng CHUNG kênh emissive -> luôn đi qua hàm này để
+   thứ tự ưu tiên đúng: flash > slow > màu gốc. */
+function refreshEnemyTint(e) {
+  if (e.flash > 0) applyHitFlash(e.fx);
+  else if (e.slow > 0) setEmissive(e.fx, CFG.skill.ice.tint);
+  else clearHitFlash(e.fx);
+}
+function applySlow(e) {
+  var C = CFG.skill.ice;
+  e.slow = C.slowTime;
+  if (!e.slowIcon) {
+    e.slowIcon = makeFxPlane({ tex: 'vfx_mask_ice', color: 0xffffff, w: C.iconSize, billboard: true });
+    groupFx.add(e.slowIcon);
+  }
+  updateSlowIcon(e);
+  refreshEnemyTint(e);
+}
+function updateSlowIcon(e) {
+  if (!e.slowIcon) return;
+  e.slowIcon.position.set(e.x, CFG.skill.ice.iconY + Math.sin(state.time * 4) * 0.07, e.z);
+}
+function removeSlowIcon(e) {
+  if (!e || !e.slowIcon) return;
+  groupFx.remove(e.slowIcon);
+  if (e.slowIcon.material) e.slowIcon.material.dispose();
+  e.slowIcon = null;
+}
+
+// ---------------------------------------------------------------------------
+// (1) CẦU LỬA — bay xuyên quái, nổ AOE ở quái ĐẦU TIÊN trúng (hoặc cuối tầm)
+// ---------------------------------------------------------------------------
+function castFire() {
+  var h = state.hero, C = CFG.skill.fire;
+  var tg = nearestEnemy(h.x, h.z);
+  var a = tg ? Math.atan2(tg.x - h.x, tg.z - h.z) : h.facing;
+
+  var g = new THREE.Group();
+  g.rotation.y = a;
+  var ball = new THREE.Mesh(
+    new THREE.SphereGeometry(C.radius, 14, 10),
+    new THREE.MeshBasicMaterial({ color: C.color })
+  );
+  ball.position.y = 0.62; g.add(ball);
+  // Vệt lửa kéo dài PHÍA SAU (local -Z), nằm ngửa để camera top-down thấy rõ.
+  var tr = makeStripPlane('vfx_trail_fire', 0xffffff, C.trailLen, C.trailW, true);
+  tr.position.set(0, 0.5, -C.trailLen / 2); g.add(tr);
+  g.position.set(h.x, 0, h.z);
+  groupFx.add(g);
+
+  state.fireballs.push({
+    x: h.x, z: h.z, vx: Math.sin(a) * C.speed, vz: Math.cos(a) * C.speed,
+    travel: 0, hit: [], exploded: false, mesh: g, ball: ball, trail: tr
+  });
+  return true;
+}
+
+function removeFireball(i) {
+  var f = state.fireballs[i];
+  groupFx.remove(f.mesh);
+  f.ball.geometry.dispose(); f.ball.material.dispose();
+  disposeFxPlane(f.trail);
+  state.fireballs.splice(i, 1);
+}
+
+function updateFireballs(dt) {
+  var C = CFG.skill.fire;
+  for (var i = state.fireballs.length - 1; i >= 0; i--) {
+    var f = state.fireballs[i];
+    var step = Math.hypot(f.vx, f.vz) * dt;
+    f.x += f.vx * dt; f.z += f.vz * dt; f.travel += step;
+    f.mesh.position.set(f.x, 0, f.z);
+    f.ball.rotation.x += dt * 9;
+
+    for (var j = 0; j < state.enemies.length; j++) {
+      var e = state.enemies[j];
+      if (f.hit.indexOf(e) >= 0) continue;
+      var rr = C.radius + e.r;
+      if (dist2(f.x, f.z, e.x, e.z) <= rr * rr) {
+        f.hit.push(e);
+        // Quái ĐẦU TIÊN chạm: nổ AOE ngay tại đó; quả cầu vẫn XUYÊN tiếp và
+        // gây damage trực tiếp cho các quái sau (mỗi quái đúng 1 lần).
+        if (!f.exploded) { f.exploded = true; fireExplode(f.x, f.z); }
+        damageEnemy(e, Math.round(arrowDmg() * C.dmgMul));
+        j--;                                    // damageEnemy có thể giết -> splice
+      }
+    }
+    if (f.travel >= C.range || outOfRoom(f.x, f.z)) {
+      if (!f.exploded) { f.exploded = true; fireExplode(f.x, f.z); }
+      removeFireball(i);
+    }
+  }
+}
+
+function fireExplode(x, z) {
+  var C = CFG.skill.fire, dm = Math.round(arrowDmg() * C.aoeDmgMul);
+  for (var i = state.enemies.length - 1; i >= 0; i--) {
+    var e = state.enemies[i];
+    if (!e) continue;
+    if (dist2(x, z, e.x, e.z) <= C.aoe * C.aoe) damageEnemy(e, dm);
+  }
+  // Vòng nổ nằm sàn: 0.3 -> đường kính AOE trong ringLife rồi tan.
+  var ring = makeFxPlane({ tex: 'vfx_ring', color: C.color, additive: true, w: 1, ground: true });
+  ring.position.set(x, 0.06, z);
+  addFx(ring, C.ringLife + C.ringFade, function (o) {
+    var k = Math.min(1, o.t / CFG.skill.fire.ringLife);
+    var s = 0.3 + (CFG.skill.fire.aoe * 2 * CFG.skill.fire.ringTexFit - 0.3) * k;
+    o.mesh.scale.set(s, s, 1);
+    o.mat.opacity = o.t <= CFG.skill.fire.ringLife ? 1
+                  : Math.max(0, 1 - (o.t - CFG.skill.fire.ringLife) / CFG.skill.fire.ringFade);
+  });
+  // Biểu tượng lửa phồng lên rồi tan (billboard, có alpha nên KHÔNG additive).
+  // nhuộm cam theo màu skill (tint trắng ra đốm TRẮNG vô nghĩa — ảnh vòng 1)
+  var mk = makeFxPlane({ tex: 'vfx_mask_fire', color: C.color, w: 1, billboard: true });
+  mk.position.set(x, 1.0, z);
+  addFx(mk, 0.42, function (o) {
+    var k = o.t / o.max;
+    var s = 0.7 + 1.7 * k;
+    o.mesh.scale.set(s, s, 1);
+    o.mesh.position.y = 1.0 + k * 0.5;
+    o.mat.opacity = 1 - k * k;
+  });
+  shakeCam(C.shake);
+}
+
+// ---------------------------------------------------------------------------
+// (2) BĂNG NỔ — vòng băng lan từ hero: damage + slow 60%/3s
+// ---------------------------------------------------------------------------
+function castIce() {
+  var h = state.hero, C = CFG.skill.ice, dm = Math.round(arrowDmg() * C.dmgMul);
+  for (var i = state.enemies.length - 1; i >= 0; i--) {
+    var e = state.enemies[i];
+    if (dist2(h.x, h.z, e.x, e.z) > C.radius * C.radius) continue;
+    damageEnemy(e, dm);
+    if (state.enemies.indexOf(e) >= 0) applySlow(e);    // còn sống mới slow
+  }
+  var ring = makeFxPlane({ tex: 'vfx_ring', color: C.color, additive: true, w: 0.01, ground: true });
+  ring.position.set(h.x, 0.05, h.z);
+  addFx(ring, C.ringLife + C.ringFade, function (o) {
+    var CC = CFG.skill.ice;
+    var k = Math.min(1, o.t / CC.ringLife);
+    var s = CC.radius * 2 * CC.ringTexFit * k;
+    o.mesh.scale.set(Math.max(0.01, s), Math.max(0.01, s), 1);
+    o.mat.opacity = o.t <= CC.ringLife ? 1 : Math.max(0, 1 - (o.t - CC.ringLife) / CC.ringFade);
+  });
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// (3) SÉT XÍCH — đánh quái gần nhất rồi nhảy tối đa 4 mục tiêu
+// ---------------------------------------------------------------------------
+function castThunder() {
+  var h = state.hero, C = CFG.skill.thunder;
+  var first = null, bd = C.range * C.range;
+  for (var i = 0; i < state.enemies.length; i++) {
+    var e = state.enemies[i], d = dist2(h.x, h.z, e.x, e.z);
+    if (d <= bd) { bd = d; first = e; }
+  }
+  if (!first) {
+    addText(h.x, CFG.hero.height * 1.4, h.z, 'Không có mục tiêu', 'hero');
+    return false;                       // KHÔNG tốn cooldown
+  }
+  // Dựng chuỗi mục tiêu: mỗi bước nhảy sang quái gần nhất CHƯA bị đánh trong
+  // jumpRange quanh mục tiêu hiện tại.
+  var chain = [first];
+  while (chain.length < C.maxTargets) {
+    var cur = chain[chain.length - 1], nx = null, nd = C.jumpRange * C.jumpRange;
+    for (var j = 0; j < state.enemies.length; j++) {
+      var c = state.enemies[j];
+      if (chain.indexOf(c) >= 0) continue;
+      var d2 = dist2(cur.x, cur.z, c.x, c.z);
+      if (d2 <= nd) { nd = d2; nx = c; }
+    }
+    if (!nx) break;
+    chain.push(nx);
+  }
+  // Mỗi đoạn hiện lệch 60ms -> cảm giác "xích" chạy dần.
+  for (var k = 0; k < chain.length; k++) {
+    (function (idx) {
+      var from = idx === 0 ? null : chain[idx - 1];
+      var to = chain[idx];
+      state.skillPending.push({ t: idx * C.segDelay, fn: function () { thunderHit(from, to, idx); } });
+    })(k);
+  }
+  shakeCam(C.shake);
+  return true;
+}
+
+function thunderHit(from, to, idx) {
+  var C = CFG.skill.thunder, h = state.hero;
+  if (state.enemies.indexOf(to) < 0) return;      // mục tiêu đã chết trước lượt
+  if (from === null) {
+    // Đoạn đầu: sét TỪ TRÊN CAO đánh xuống (billboard đứng ngay trên mục tiêu).
+    // tint TRẮNG: giữ nguyên vàng-cam sẵn có của texture (nhân thêm C.color
+    // làm tối kênh xanh -> nhìn ra nâu xỉn, thấy ở ảnh vòng 1)
+    var sky = makeFxPlane({ tex: 'vfx_bolt', color: 0xffffff, additive: true,
+                            w: C.segW * 1.6, h: C.skyH, billboard: true });
+    sky.position.set(to.x, C.skyH * 0.5, to.z);
+    addFx(sky, C.segLife, fadeOutFx);
+    // + 1 đoạn ngang ngắn từ hero tới mục tiêu để thấy liên kết với hero
+    addBoltSegment(h.x, h.z, to.x, to.z);
+  } else {
+    addBoltSegment(from.x, from.z, to.x, to.z);
+  }
+  // Tia lửa tại điểm trúng: 1 trong 4 ô của sheet 2x2 vfx_spark.
+  var sp = makeFxPlane({ tex: 'vfx_spark', color: 0xffffff, additive: true,
+                         w: C.sparkSize, billboard: true, cloneTex: true });
+  if (sp.material.map) {
+    sp.material.map.repeat.set(0.5, 0.5);
+    sp.material.map.offset.set(0.5 * ri(2), 0.5 * ri(2));
+  }
+  sp.position.set(to.x, 0.9, to.z);
+  addFx(sp, C.sparkLife, fadeOutFx);
+
+  var mul = C.dmgMul[Math.min(idx, C.dmgMul.length - 1)];
+  damageEnemy(to, Math.round(arrowDmg() * mul));
+}
+
+function addBoltSegment(ax, az, bx, bz) {
+  var C = CFG.skill.thunder;
+  var dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+  if (len < 1e-3) return;
+  var g = new THREE.Group();
+  g.rotation.y = Math.atan2(dx, dz);              // +Z cục bộ chỉ từ A về B
+  g.position.set(bx, 0, bz);
+  var p = makeStripPlane('vfx_bolt', 0xffffff, len, C.segW, true);
+  p.position.set(0, 0.85, -len / 2);              // trải dọc -Z cục bộ => về A
+  g.add(p);
+  // Group chỉ là khung xoay -> truyền làm holder để gỡ luôn khi plane hết đời.
+  addFx(p, C.segLife, fadeOutFx, g);
+}
+
+/* GIỮ nguyên độ sáng nửa đầu đời rồi mới tắt dần — fade tuyến tính từ đầu
+   khiến cả chuỗi sét đã mờ 30-70% ngay khi đoạn cuối vừa hiện (ảnh vòng 1). */
+function fadeOutFx(o) {
+  var k = o.t / o.max;
+  o.mat.opacity = k < 0.5 ? 1 : Math.max(0, 1 - (k - 0.5) / 0.5);
+}
+
+// ---------------------------------------------------------------------------
+// (4) MÂY ĐỘC — thả tại tâm cụm quái đông nhất, tick damage 0.5s trong 4s
+// ---------------------------------------------------------------------------
+function castPoison() {
+  var C = CFG.skill.poison, h = state.hero, cx, cz;
+  if (state.enemies.length) {
+    var best = null, bestN = -1;
+    for (var i = 0; i < state.enemies.length; i++) {
+      var e = state.enemies[i], n = 0;
+      for (var j = 0; j < state.enemies.length; j++) {
+        if (dist2(e.x, e.z, state.enemies[j].x, state.enemies[j].z) <= C.clusterR * C.clusterR) n++;
+      }
+      if (n > bestN) { bestN = n; best = e; }
+    }
+    cx = best.x; cz = best.z;
+  } else {
+    cx = h.x + Math.sin(h.facing) * C.dropAhead;
+    cz = h.z + Math.cos(h.facing) * C.dropAhead;
+  }
+  var p = { x: cx, z: cz }; clampToRoom(p); cx = p.x; cz = p.z;
+
+  var g = new THREE.Group(); g.position.set(cx, 0, cz);
+  var glow = makeFxPlane({ tex: 'vfx_glow', color: C.color, additive: true, w: C.radius * 2.1, ground: true });
+  glow.position.y = 0.04; g.add(glow);
+  var ring = makeFxPlane({ tex: 'vfx_ring', color: C.color, additive: true, w: C.radius * 2, ground: true });
+  ring.position.y = 0.08; g.add(ring);
+  // Pool bọt: tạo 1 lần lúc thả, TÁI SỬ DỤNG suốt vòng đời mây (không tạo/xoá
+  // mesh mỗi frame), dispose 1 lượt khi mây tan.
+  var bubbles = [];
+  for (var b = 0; b < C.bubbles; b++) {
+    var bm = makeFxPlane({ tex: 'vfx_mask_poison', color: 0xffffff, w: C.bubbleSize, billboard: true });
+    g.add(bm);
+    bubbles.push({ mesh: bm, t: -b * (1.4 / C.bubbles), dur: 1.4, ox: 0, oz: 0 });
+    resetBubble(bubbles[b], C);
+  }
+  groupFx.add(g);
+  // tickT = 0: nhịp damage ĐẦU TIÊN nổ ngay frame sau khi thả (không bắt người
+  // chơi chờ trắng 0.5s), các nhịp sau cách nhau đúng tickInterval.
+  state.clouds.push({ x: cx, z: cz, life: C.life, tickT: 0,
+                      mesh: g, glow: glow, ring: ring, bubbles: bubbles, ticks: 0 });
+  return true;
+}
+
+function resetBubble(b, C) {
+  var a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * C.radius * 0.8;
+  b.ox = Math.sin(a) * r; b.oz = Math.cos(a) * r;
+  b.dur = rnd(1.1, 1.7);
+}
+
+function updatePoisonClouds(dt) {
+  var C = CFG.skill.poison;
+  for (var i = state.clouds.length - 1; i >= 0; i--) {
+    var c = state.clouds[i];
+    c.life -= dt;
+    // decal xoay chậm + vòng nhấp nháy 0.9 <-> 1.05
+    c.glow.rotation.z += dt * 0.55;
+    var pl = 0.9 + 0.15 * (0.5 + 0.5 * Math.sin(state.time * 6));
+    var rs = C.radius * 2 * pl;
+    c.ring.scale.set(rs, rs, 1);
+    var fade = c.life < 0.5 ? c.life / 0.5 : 1;
+    c.glow.material.opacity = 0.85 * fade;
+    c.ring.material.opacity = 0.9 * fade;
+    for (var b = 0; b < c.bubbles.length; b++) {
+      var bb = c.bubbles[b];
+      bb.t += dt;
+      if (bb.t >= bb.dur) { bb.t = 0; resetBubble(bb, C); }
+      var k = bb.t <= 0 ? 0 : bb.t / bb.dur;
+      bb.mesh.visible = bb.t > 0;
+      bb.mesh.position.set(bb.ox, 0.15 + C.bubbleRise * k, bb.oz);
+      bb.mesh.material.opacity = (k < 0.2 ? k / 0.2 : (1 - (k - 0.2) / 0.8)) * fade;
+    }
+    // tick damage
+    c.tickT -= dt;
+    if (c.tickT <= 0) {
+      c.tickT += C.tickInterval;
+      c.ticks++;
+      var dm = Math.round(arrowDmg() * C.dmgMul);
+      for (var j = state.enemies.length - 1; j >= 0; j--) {
+        var e = state.enemies[j];
+        if (dist2(c.x, c.z, e.x, e.z) <= C.radius * C.radius) damageEnemy(e, dm, 'poison');
+      }
+    }
+    if (c.life <= 0) { disposeCloud(c); state.clouds.splice(i, 1); }
+  }
+}
+
+function disposeCloud(c) {
+  groupFx.remove(c.mesh);
+  c.glow.material.dispose(); c.ring.material.dispose();
+  for (var b = 0; b < c.bubbles.length; b++) c.bubbles[b].mesh.material.dispose();
+}
+function purgeClouds() {
+  if (!state || !state.clouds) return;
+  for (var i = 0; i < state.clouds.length; i++) disposeCloud(state.clouds[i]);
+  state.clouds.length = 0;
+}
+function purgeFireballs() {
+  if (!state || !state.fireballs) return;
+  for (var i = state.fireballs.length - 1; i >= 0; i--) removeFireball(i);
+}
+
+// ---------------------------------------------------------------------------
+// Cast + vòng cập nhật chung
+// ---------------------------------------------------------------------------
+function castSkill(i) {
+  if (!state || state.phase !== 'playing') return false;
+  var s = state.skills[i];
+  if (!s || s.cd > 0) return false;
+  var ok = false;
+  if (s.id === 'fire') ok = castFire();
+  else if (s.id === 'ice') ok = castIce();
+  else if (s.id === 'thunder') ok = castThunder();
+  else if (s.id === 'poison') ok = castPoison();
+  if (ok) { s.cd = s.cdMax; bumpSkillBtn(i); }
+  return ok;
+}
+
+function updateSkills(dt) {
+  for (var i = 0; i < state.skills.length; i++) {
+    var s = state.skills[i];
+    if (s.cd > 0) s.cd = Math.max(0, s.cd - dt);
+  }
+  for (var p = state.skillPending.length - 1; p >= 0; p--) {
+    var q = state.skillPending[p];
+    q.t -= dt;
+    if (q.t <= 0) { state.skillPending.splice(p, 1); q.fn(); }
+  }
+  updateFireballs(dt);
+  updatePoisonClouds(dt);
+  updateSkillFx(dt);
+  updateShake(dt);
+}
+
+function getSkillState() {
+  var out = [];
+  for (var i = 0; i < state.skills.length; i++) {
+    var s = state.skills[i];
+    out.push({ id: s.id, cd: Math.round(s.cd * 1000) / 1000, cdMax: s.cdMax, ready: s.cd <= 0 });
+  }
+  return out;
+}
+
+// --- HUD 4 nút -------------------------------------------------------------
+var skillBtns = null, _skillPrev = null;
+function buildSkillBar() {
+  if (skillBtns) return;
+  var bar = $('skillBar'); if (!bar) return;
+  skillBtns = []; _skillPrev = [];
+  for (var i = 0; i < SKILL_DEFS.length; i++) {
+    var el = $('sk' + i); if (!el) continue;
+    var img = el.querySelector('img');
+    var uri = ((typeof window !== 'undefined' && window.FBX_TEX) ? window.FBX_TEX : {})[SKILL_DEFS[i].icon];
+    if (img && uri) img.src = uri;                 // icon lấy từ FBX_TEX, không chép base64 vào HTML
+    skillBtns.push({ el: el, arc: el.querySelector('.cd'), txt: el.querySelector('.cdTxt') });
+    _skillPrev.push({ frac: -1, ready: null });
+  }
+}
+function syncSkillBar() {
+  buildSkillBar();
+  if (!skillBtns || !state || !state.skills) return;
+  for (var i = 0; i < skillBtns.length; i++) {
+    var s = state.skills[i], b = skillBtns[i], pv = _skillPrev[i];
+    var frac = s.cdMax > 0 ? s.cd / s.cdMax : 0;
+    // chỉ ghi DOM khi đổi >= 1% (hoặc vừa chạm 0)
+    if (pv.frac < 0 || Math.abs(frac - pv.frac) >= 0.01 || (frac === 0) !== (pv.frac === 0)) {
+      if (b.arc) b.arc.style.setProperty('--cd', frac.toFixed(3));
+      if (b.txt) b.txt.textContent = s.cd > 0 ? s.cd.toFixed(1) : '';
+      pv.frac = frac;
+    }
+    var ready = s.cd <= 0;
+    if (ready !== pv.ready) {
+      if (ready) {
+        b.el.classList.add('ready');
+        if (pv.ready === false) flashSkillBtn(i);   // vừa sẵn sàng -> nháy 1 lần
+      } else b.el.classList.remove('ready');
+      pv.ready = ready;
+    }
+  }
+}
+function pulseClass(i, cls, ms) {
+  if (!skillBtns || !skillBtns[i]) return;
+  var el = skillBtns[i].el;
+  el.classList.remove(cls);
+  void el.offsetWidth;                              // ép reflow để animation chạy lại
+  el.classList.add(cls);
+  setTimeout(function () { el.classList.remove(cls); }, ms);
+}
+function bumpSkillBtn(i) { pulseClass(i, 'bump', 220); }
+function flashSkillBtn(i) { pulseClass(i, 'flash', 480); }
+
+// --- Input: phím 1-4 (one-shot) + pointerdown trên nút ---------------------
+var _skillKeyHeld = {};
+function skillIndexFromCode(code) {
+  switch (code) {
+    case 'Digit1': case 'Numpad1': return 0;
+    case 'Digit2': case 'Numpad2': return 1;
+    case 'Digit3': case 'Numpad3': return 2;
+    case 'Digit4': case 'Numpad4': return 3;
+  }
+  return -1;
+}
+function initSkillInput() {
+  buildSkillBar();
+  if (!skillBtns) return;
+  for (var i = 0; i < skillBtns.length; i++) {
+    (function (idx) {
+      var el = skillBtns[idx].el;
+      // pointerdown: phản hồi ngay trên touch; preventDefault để không cướp
+      // focus bàn phím và không kéo/scroll trang.
+      el.addEventListener('pointerdown', function (ev) { ev.preventDefault(); castSkill(idx); });
+      el.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+      el.addEventListener('click', function (ev) { ev.preventDefault(); });
+    })(i);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 8. Damage / chết / XP / tim hồi máu
 // ---------------------------------------------------------------------------
-function damageEnemy(e, dmg) {
+/* cls: lớp CSS cho số damage nổi ('' = trắng mặc định; [VÒNG D-5] 'poison' =
+   tím cho Mây Độc). Tham số THÊM, mọi lời gọi cũ giữ nguyên ý nghĩa. */
+function damageEnemy(e, dmg, cls) {
   e.hp -= dmg; e.flash = 0.1;
   applyHitFlash(e.fx);                    // [ADD-3](d) nháy sáng ~0.1s khi trúng đòn
-  addText(e.x, CFG.hero.height, e.z, '-' + dmg, '');
+  addText(e.x, CFG.hero.height, e.z, '-' + dmg, cls || '');
   if (e.hp <= 0) killEnemy(e);
 }
 
@@ -1247,6 +1938,7 @@ function killEnemy(e) {
   var i = state.enemies.indexOf(e); if (i < 0) return;
   state.enemies.splice(i, 1);
   groupEntities.remove(e.mesh);
+  removeSlowIcon(e);                      // [VÒNG D-5] gỡ icon băng trên đầu
   if (e.ring) { var ri2 = state.rings.indexOf(e.ring); if (ri2 >= 0) { groupFx.remove(e.ring.mesh); state.rings.splice(ri2, 1); } }
   state.kills++;
   // Tim hồi máu: 15% rơi (mục G)
@@ -1485,6 +2177,7 @@ function syncHUD() {
   }
 
   updateHeroBar();
+  syncSkillBar();                  // [VÒNG D-5] 4 nút skill + quét cooldown
 }
 
 /* Thanh HP hero bám theo hero, chiếu bằng camera.project() giống số damage nổi. */
@@ -1526,6 +2219,11 @@ function loop(now) {
 function clearScene() {
   if (!state) return;
   function purge(arr, g) { for (var i = 0; i < arr.length; i++) g.remove(arr[i].mesh); arr.length = 0; }
+  // [VÒNG D-5] dọn toàn bộ VFX skill trước (mesh + material), tránh rò rỉ
+  // node trong scene khi reset()/start() lại.
+  for (var si = 0; si < state.enemies.length; si++) removeSlowIcon(state.enemies[si]);
+  purgeFireballs(); purgeClouds(); purgeSkillFx();
+  _shakeT = 0; _shakeX = 0; _shakeY = 0;
   purge(state.enemies, groupEntities);
   purge(state.arrows, groupEntities);
   purge(state.ebullets, groupEntities);
@@ -1589,6 +2287,7 @@ var api = {
   killAll: killAll, spawnWave: spawnWave, getSnapshot: getSnapshot,
   chooseCard: chooseCard,
   pause: pause, resume: resume,                       // [MOD-6 v2]
+  castSkill: castSkill, getSkillState: getSkillState, // [VÒNG D-5]
   hasFBX: function (k) { return Assets.has(k); },
   _internal: { Assets: Assets, ASSET_SIZE: ASSET_SIZE, get scene() { return scene; }, get camera() { return camera; },
                camLimitZ: function () { return camLimitZ(); },
@@ -1603,7 +2302,30 @@ var api = {
                  return n;
                },
                // [VÒNG D-3b] có đang dùng crop texture từ floor.png hay không (false = fallback checker)
-               floorTexture: function () { return !!makeFloorCropTexture(); } }
+               floorTexture: function () { return !!makeFloorCropTexture(); },
+               // [VÒNG D-5] đếm object VFX skill đang sống (test rò rỉ mesh)
+               skillFx: function () {
+                 return {
+                   fx: state && state.skillFx ? state.skillFx.length : 0,
+                   fireballs: state && state.fireballs ? state.fireballs.length : 0,
+                   clouds: state && state.clouds ? state.clouds.length : 0,
+                   pending: state && state.skillPending ? state.skillPending.length : 0,
+                   rings: state && state.rings ? state.rings.length : 0,
+                   enemies: state && state.enemies ? state.enemies.length : 0,
+                   groupFxChildren: groupFx ? groupFx.children.length : 0,
+                   groupFxCensus: (function () {
+                     if (!groupFx) return [];
+                     var c = {};
+                     for (var i = 0; i < groupFx.children.length; i++) {
+                       var n = groupFx.children[i];
+                       var k = n.type + ':' + (n.geometry && n.geometry.type ? n.geometry.type : '-') +
+                               ':' + (n.material && n.material.map && n.material.map.image && n.material.map.image.width ? n.material.map.image.width : 'nomap');
+                       c[k] = (c[k] || 0) + 1;
+                     }
+                     return c;
+                   })()
+                 };
+               } }
 };
 window.__game = api;
 
@@ -1614,6 +2336,7 @@ function boot() {
   Assets.load();
   initThree();
   initInput();
+  initSkillInput();                 // [VÒNG D-5] gán icon + pointerdown 4 nút skill
   $('btnReplay').addEventListener('click', function () { start(); });
   // [MOD-6 v2] nút Pause góc trên trái + nút "Tiếp tục" trong overlay
   $('btnPause').addEventListener('click', function () { pause(); });

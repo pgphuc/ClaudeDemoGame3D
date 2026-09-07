@@ -52,7 +52,13 @@ const ASSET_MAP = {
 // floor.png VẪN PHẢI nhúng (dùng làm crop texture runtime cho sàn primitive) —
 // nếu lặp theo Object.keys(ASSET_MAP) như cũ sẽ BỎ SÓT floor.png vì 'floor' đã
 // bị xoá khỏi ASSET_MAP ở trên.
-const TEX_KEYS = ['hero', 'monster_flower', 'monster_bug', 'monster_slime', 'arrow', 'floor', 'wall'];
+// [VÒNG D-5] Thêm icon 4 skill (skill_*) + texture VFX (vfx_*) crop/copy từ
+// Archero2_Sources — chỉ là texture, không có .fbx đi kèm.
+const TEX_KEYS = ['hero', 'monster_flower', 'monster_bug', 'monster_slime', 'arrow', 'floor', 'wall',
+  'skill_fire', 'skill_ice', 'skill_thunder', 'skill_poison',
+  'vfx_trail_fire', 'vfx_trail_ice', 'vfx_trail_thunder', 'vfx_trail_poison',
+  'vfx_ring', 'vfx_bolt', 'vfx_spark', 'vfx_glow',
+  'vfx_mask_fire', 'vfx_mask_ice', 'vfx_mask_thunder', 'vfx_mask_poison'];
 const TEX_EXTS = ['.png', '.jpg', '.jpeg'];
 const TEX_MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
 

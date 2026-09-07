@@ -94,6 +94,34 @@
     transform:translate(-50%,-50%);white-space:nowrap;}
   .dmg.hero{color:#ff8080;}
   .dmg.heal{color:#8effa8;}
+  .dmg.poison{color:#cf8bff;}                      /* [VÒNG D-5] damage Mây Độc */
+
+  /* ---- [VÒNG D-5] Cụm 4 nút SKILL, góc DƯỚI-PHẢI khung ---- */
+  #skillBar{position:absolute;right:10px;bottom:12px;display:flex;gap:10px;
+    pointer-events:none;z-index:3;}
+  .skBtn{pointer-events:auto;cursor:pointer;position:relative;flex:0 0 auto;
+    width:64px;height:64px;padding:0;border:0;border-radius:50%;overflow:hidden;
+    background:radial-gradient(circle at 50% 34%,#2b3654,#121828 74%);
+    box-shadow:0 0 0 2px rgba(255,222,140,.42),0 3px 9px rgba(0,0,0,.65);
+    -webkit-tap-highlight-color:transparent;touch-action:none;
+    transition:box-shadow .15s linear;}
+  .skBtn img{position:absolute;left:7px;top:7px;width:50px;height:50px;
+    display:block;object-fit:contain;pointer-events:none;
+    filter:drop-shadow(0 1px 2px rgba(0,0,0,.75));}
+  /* Lớp quét radial cooldown: --cd = phần CÒN LẠI (1 = vừa bấm, 0 = sẵn sàng) */
+  .skBtn .cd{position:absolute;left:0;top:0;width:100%;height:100%;border-radius:50%;
+    pointer-events:none;
+    background:conic-gradient(rgba(3,6,12,.74) calc(var(--cd,0) * 360deg),rgba(0,0,0,0) 0);}
+  .skBtn .cdTxt{position:absolute;left:0;top:0;width:100%;height:100%;
+    display:flex;align-items:center;justify-content:center;pointer-events:none;
+    font-size:19px;font-weight:900;color:#fff;text-shadow:0 2px 4px #000,0 0 6px #000;}
+  .skBtn .num{position:absolute;right:6px;bottom:2px;pointer-events:none;
+    font-size:10px;font-weight:800;color:#ffe9b0;opacity:.9;text-shadow:0 1px 2px #000;}
+  .skBtn.ready{box-shadow:0 0 0 2px #ffe08c,0 0 13px rgba(255,214,110,.8),0 3px 9px rgba(0,0,0,.65);}
+  .skBtn.bump{animation:skBump .18s ease-out;}
+  .skBtn.flash{animation:skFlash .45s ease-out;}
+  @keyframes skBump{from{transform:scale(.9);}to{transform:scale(1);}}
+  @keyframes skFlash{0%{filter:brightness(2.1);}60%{filter:brightness(1.15);}100%{filter:brightness(1);}}
 
   /* ---- Overlay chung ---- */
   .ov{position:absolute;left:0;top:0;width:100%;height:100%;display:none;
@@ -140,6 +168,14 @@
 
     <div id="fx"></div>
     <div id="heroBar"><span id="heroHPFill"></span><span id="heroHPText">1000</span></div>
+
+    <!-- [VÒNG D-5] 4 nút skill; icon <img> gán data URI từ window.FBX_TEX lúc boot -->
+    <div id="skillBar">
+      <button class="skBtn" id="sk0" type="button" title="Cầu Lửa (1)"><img alt=""><span class="cd"></span><span class="cdTxt"></span><span class="num">1</span></button>
+      <button class="skBtn" id="sk1" type="button" title="Băng Nổ (2)"><img alt=""><span class="cd"></span><span class="cdTxt"></span><span class="num">2</span></button>
+      <button class="skBtn" id="sk2" type="button" title="Sét Xích (3)"><img alt=""><span class="cd"></span><span class="cdTxt"></span><span class="num">3</span></button>
+      <button class="skBtn" id="sk3" type="button" title="Mây Độc (4)"><img alt=""><span class="cd"></span><span class="cdTxt"></span><span class="num">4</span></button>
+    </div>
   </div>
 
   <!-- Overlay tạm dừng [MOD-6 v2] -->

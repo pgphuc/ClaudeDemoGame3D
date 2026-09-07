@@ -4,6 +4,98 @@
  Ngày: 2026-09-07
 --------------------------------------------------------------------------------
 NHẬT KÝ VÒNG FIX (Agent D)
+  VÒNG D-5 2026-09-07: THÊM HỆ 4 SKILL NGƯỜI CHƠI BẤM (phím 1/2/3/4 hoặc 4
+  nút HUD góc dưới-phải). KHÔNG đổi bất kỳ số gameplay cũ nào (mục G nguyên
+  vẹn) — toàn bộ tham số mới nằm trong CFG.skill (xem mục 2).
+  (1) Bốn skill (game_core.js §7b, mọi khối đánh dấu [VÒNG D-5]):
+    - Cầu Lửa (1, cd 6s): castFire()/updateFireballs()/fireExplode(). Bay theo
+      hướng quái gần nhất (không có quái -> hero.facing), 180*PCT, XUYÊN quái
+      (mỗi quái ăn 3x mũi tên đúng 1 lần, mảng f.hit). Vụ NỔ AOE 2.0 (2x mũi
+      tên) chỉ xảy ra 1 LẦN: tại quái ĐẦU TIÊN chạm, hoặc cuối tầm 12 nếu
+      không chạm ai — quả cầu vẫn bay tiếp sau khi nổ để giữ đúng tính chất
+      "xuyên" (spec ghi cả "xuyên" lẫn "nổ ở quái đầu tiên", đây là cách hoà
+      giải 2 vế). VFX: sphere cam + plane vfx_trail_fire nằm ngửa kéo sau,
+      vòng vfx_ring cam Additive nở 0.3->2*aoe*ringTexFit trong 0.35s rồi tan,
+      billboard vfx_mask_fire phồng + tan, shake 0.15s.
+    - Băng Nổ (2, cd 8s): castIce(). Quái trong 3.5 ăn 1x mũi tên + slow 60%
+      trong 3s. Slow ảnh hưởng slime moveToward, bọ chase VÀ dash (enemySpeed()
+      /slowFactor()); hoa đứng yên nên không đổi. Hit-flash và tint-slow DÙNG
+      CHUNG kênh emissive -> mọi lần đổi màu đi qua refreshEnemyTint() với thứ
+      tự ưu tiên flash > slow > màu gốc (hết flash mà còn slow thì về tint
+      xanh, KHÔNG về màu gốc). Mỗi quái bị slow có 1 billboard vfx_mask_ice
+      lơ lửng trên đầu, gỡ khi hết slow / chết (killEnemy) / reset (clearScene).
+    - Sét Xích (3, cd 5s): castThunder()/thunderHit()/addBoltSegment(). Mục
+      tiêu đầu trong tầm 8, nhảy tiếp sang quái chưa bị đánh gần nhất trong
+      4.0, tối đa 4, dmg 2.5x/2x/1.5x/1x. KHÔNG có mục tiêu -> KHÔNG cast,
+      KHÔNG tốn cooldown, hiện addText "Không có mục tiêu" (cls 'hero') ở hero.
+      Các đoạn hiện lệch 60ms qua hàng đợi state.skillPending (đếm trong
+      updateSkills). Đoạn đầu có thêm 1 billboard vfx_bolt cao 3.0 ngay trên
+      mục tiêu (sét từ trên cao xuống); mỗi điểm trúng có billboard vfx_spark
+      chọn 1 trong 4 ô sheet 2x2 bằng map.offset/repeat (texture CLONE riêng,
+      dispose qua cờ mesh.userData.ownTex).
+    - Mây Độc (4, cd 10s): castPoison()/updatePoisonClouds(). Tâm = quái có
+      nhiều quái khác nhất trong 2.5 quanh nó; không có quái -> trước mặt hero
+      3.0 (clampToRoom). Vùng 2.5, sống 4s, tick 0.5s x 0.6x mũi tên, số damage
+      màu tím (lớp CSS .dmg.poison mới; damageEnemy() nhận THÊM tham số cls,
+      mọi lời gọi cũ giữ nguyên). Nhịp damage ĐẦU TIÊN nổ ngay (tickT khởi tạo
+      = 0) thay vì chờ trắng 0.5s. VFX: decal vfx_glow tím xoay chậm + vòng
+      vfx_ring tím nhấp nháy 0.9<->1.05 + 5 billboard vfx_mask_poison nổi lên
+      1.2 unit rồi lặp — POOL tạo 1 lần lúc thả, KHÔNG tạo/xoá mesh mỗi frame.
+  (2) Hạ tầng mới dùng chung (§2b): texFromURI() cache THREE.Texture theo key
+    của window.FBX_TEX; unitPlaneGeo() 1 PlaneGeometry duy nhất cho MỌI plane
+    VFX; makeFxPlane({tex,color,additive,w,h,ground,billboard,cloneTex}) và
+    makeStripPlane() (plane nằm sàn có trục DÀI của ảnh chạy dọc hướng yaw —
+    rotation.x=-90 rồi rotateZ(+90) trong hệ cục bộ). billboardRotX() là HẰNG
+    SỐ (= tiltDeg-90) vì camera ortho nghiêng cố định, không cần billboard
+    động mỗi frame. Kho VFX tạm state.skillFx + addFx(mesh,life,upd,holder):
+    hết đời thì gỡ khỏi groupFx + dispose material (+ texture clone); geometry
+    là unitPlaneGeo() dùng chung nên KHÔNG dispose. clearScene() dọn hết
+    fireballs/clouds/skillFx/slowIcon + reset shake.
+  (3) Screen shake: _shakeX/_shakeY TỊNH TIẾN đồng thời camera.position và
+    điểm lookAt trong applyCamera() -> chỉ rung khung hình, KHÔNG đổi camZ nên
+    clamp camLimitZ()/camLimitTopZ() (và test_cam_*) không bị ảnh hưởng.
+  (4) HUD (game.html): #skillBar 4 nút tròn 64px góc dưới-phải, pointer-events
+    auto, icon <img> gán data URI từ window.FBX_TEX['skill_*'] lúc boot (KHÔNG
+    chép base64 vào HTML). Cooldown = conic-gradient theo biến CSS --cd (phần
+    CÒN LẠI) + số giây 1 chữ số thập phân; syncSkillBar() (gọi trong syncHUD)
+    chỉ ghi DOM khi giá trị đổi >= 1%. Nút sẵn sàng có viền glow; vừa sẵn sàng
+    thì nháy 1 lần (class .flash); bấm thành công bump 0.9->1 (class .bump).
+    Nhập liệu: pointerdown (nhanh trên touch) + preventDefault trên click/
+    contextmenu để không cướp focus bàn phím; phím 1-4 là ONE-SHOT (_skillKeyHeld
+    chặn keydown lặp khi giữ phím), xoá khi blur.
+  (5) API mới: castSkill(i) -> bool, getSkillState() -> [{id,cd,cdMax,ready}],
+    _internal.skillFx() -> đếm object VFX (xem mục 5).
+  Bằng chứng ảnh (BẮT BUỘC đọc bằng mắt, xem tiêu chí Agent D):
+    shots/r5_skill_fire.png    — cầu lửa + vệt đang bay, vòng nổ cam + mặt nạ
+                                 lửa ở điểm chạm quái đầu tiên (rõ, tách khỏi
+                                 hero sau khi chỉnh kịch bản chụp).
+    shots/r5_skill_ice.png     — vòng băng cyan lan quanh hero, 3 quái trong
+                                 vùng có icon băng trên đầu.
+    shots/r5_skill_thunder.png — chuỗi sét vàng-cam nối 4 quái + 2 tia lửa.
+    shots/r5_skill_poison.png  — vòng độc tím + bọt nổi lên, quái đứng trong.
+    shots/r5_hud_ready.png     — 4 nút sáng viền vàng, icon không méo.
+    shots/r5_hud_cd.png        — 4 mức quét radial + số giây 0.9/5.3/3.8/9.9.
+  Đã sửa sau khi ĐỌC ảnh vòng 1: đoạn sét segW 0.62->0.95 và bolt tint trắng
+  (nhân C.color làm tối kênh B -> ra nâu xỉn); fadeOutFx() giữ nguyên độ sáng
+  nửa đầu đời rồi mới tắt (fade tuyến tính khiến cả chuỗi đã mờ 30-70% ngay
+  khi đoạn cuối vừa hiện); vfx_mask_fire nhuộm cam thay vì trắng; thêm
+  ringTexFit=1.3 cho vòng lửa/băng (vòng sáng trong ảnh PNG thụt vào trong
+  khung nên vẽ ra nhỏ hơn bán kính sát thương thật); sparkSize 1.5->0.95.
+  Regression (bản src): test_win {"won":true,"wave":5,"level":3,"heroHP":1000,
+  "enemiesAlive":0,"cardPicks":2,"steps":462}; test_lose {"lost":true,"wave":1,
+  "heroHP":0,"enemiesAlive":3}; test_hud SỐ Y HỆT baseline D-3c (hudBottomPx
+  114, heroTopPx 144.06, hudPadZ 3.622, limitZ 6.898, limitTopZ 10.52,
+  heroClearOfHUD true); test_assets bbox/clip/floorTexture Y HỆT baseline.
+  test_skills (src & build): errors=[], mỗi skill dmgDealt>0 (fire 700, ice
+  300, thunder 700, poison 300/nhịp), cd sau cast = cdMax, recast khi cd>0 =
+  false, cast khi paused = false, ice slowedCount=3 + slowIconCount=3, poison
+  7 nhịp có damage, noLeak=true (groupFx.children trước/sau 20s bằng nhau —
+  test phải dọn quái LIÊN TỤC trong 20s đó, nếu không wave mới sinh ra và vòng
+  đỏ telegraph của bọ (RingGeometry) làm số đếm dao động; đã xác định bằng
+  groupFxCensus chứ không đoán).
+  Build ArcheroDemo.html = 17.619 KB (~17,2 MB, tăng ~0,1 MB so với D-3c do
+  code skill + CSS/HUD; assets_fbx.js đã có sẵn 16 texture mới) — test_win +
+  test_skills trên bản build cho kết quả TRÙNG KHỚP bản src.
   VÒNG D-3c 2026-09-07: tune scale/hướng theo phản hồi hình ảnh vòng D-3b.
   (0) BUG "freeze fix" ở cuối D-3b (test_shot_wave2.js) — GIẢI THÍCH: KHÔNG
     phải do parse FBX đồng bộ lúc spawn. run.sh chạy Chrome 2 lượt độc lập
@@ -246,7 +338,11 @@ bộ mà KHÔNG reload trang.
       game.html          — vỏ UI: canvas 9:16 letterbox + HUD DOM [MOD-6 v2]
                            (#hudTop: #btnPause, #lvLine + #xpFill, #coinLine,
                            #enemyLine, #waveRow) + #heroBar (HP bám hero) +
-                           3 overlay: #ovPause, #ovCard, #ovEnd
+                           3 overlay: #ovPause, #ovCard, #ovEnd +
+                           [VÒNG D-5] #skillBar (4 nút .skBtn #sk0..#sk3 góc
+                           DƯỚI-PHẢI, mỗi nút: <img> icon + .cd (quét radial
+                           conic-gradient theo biến CSS --cd) + .cdTxt (giây
+                           còn lại) + .num (số phím)) và lớp .dmg.poison
       game_core.js       — TOÀN BỘ logic game (file chính, sửa ở đây)
       assets_fbx.js      — AUTO-GEN [D-3/D-3b] `window.FBX{hero,monster_flower,
                            monster_bug,monster_slime,arrow}` (base64, KHÔNG còn
@@ -285,6 +381,18 @@ bộ mà KHÔNG reload trang.
                               arrowMaterial (MeshBasicMaterial + màu); chạy
                               hero di chuyển rồi đứng yên để mixer chuyển
                               idle/attack không lỗi.
+      tools/test_skills.js  — [VÒNG D-5] kiểm 4 skill: mỗi skill gây damage>0,
+                              cd sau cast = cdMax, cast lại khi cd>0 -> false,
+                              cast khi phase='paused' -> false, Băng Nổ đặt
+                              slow>0 + icon băng, Mây Độc tick damage nhiều
+                              nhịp 0.5s, Sét Xích không mục tiêu -> false &
+                              KHÔNG tốn cd, và KHÔNG rò rỉ mesh (groupFx.
+                              children trước/sau 20s tick bằng nhau)
+      tools/shot_skill_{fire,ice,thunder,poison}.js — [VÒNG D-5] dựng 5 quái
+                              sát hero, cast skill, tick tới đúng khung VFX rõ
+                              nhất rồi đóng băng phase='paused' để chụp
+      tools/shot_hud_{ready,cd}.js — [VÒNG D-5] chụp 4 nút skill lúc sẵn sàng
+                              / lúc 4 mức cooldown khác nhau
       tools/test_shot_wave2.js — tiện ích tạm: mô phỏng tới giữa wave 2 (có bọ
                               + hoa) chỉ để chụp ảnh mốc so sánh trước/sau
                               (dùng lại cho cả r2/r4/r3_{before,after}_wave2)
@@ -368,6 +476,28 @@ CFG.juice    trailInterval=0.045s | trailLife=0.3s | windup=0.3s        [ADD-3][
              CFG.flower.fireInterval, chỉ thêm hiệu ứng phình ngay trước bắn.
 CFG.color    bảng màu primitive fallback + trail=0x9fd8ff, hitFlash=0xffffff
              (thêm ở D-4 cho ADD-3)
+CFG.skill    [VÒNG D-5] TOÀN BỘ số liệu 4 skill người chơi bấm — số Agent D
+             tự chọn, KHÔNG thuộc mục G, KHÔNG đụng số gameplay cũ. Damage mọi
+             skill là BỘI SỐ của 1 mũi tên thường (arrowDmg() = CFG.arrow.damage
+             * state.stat.atkMul) nên card "Tấn Công +25%" tự buff cả skill.
+             shakeMag=0.16 (biên độ rung camera, world-unit)
+             .fire   cd=6s | speed=180*PCT | range=12 | radius=0.35 | aoe=2.0
+                     dmgMul=3 (trúng trực tiếp, mỗi quái 1 lần) | aoeDmgMul=2
+                     trailLen=1.9/trailW=0.8 | ringLife=0.35 + ringFade=0.2
+                     ringTexFit=1.3 (vòng sáng của vfx_ring thụt vào trong ảnh
+                     -> phải scale plane to hơn đường kính thật; đo bằng ảnh)
+                     shake=0.15s | color=0xff8a1e
+             .ice    cd=8s | radius=3.5 | dmgMul=1 | slowPct=0.6 | slowTime=3s
+                     ringLife=0.4 + ringFade=0.18 | ringTexFit=1.3
+                     color=0x4fe0ff | tint=0x1d5f7a (emissive quái đang slow)
+                     iconSize=0.55 | iconY=1.35 (billboard vfx_mask_ice trên đầu)
+             .thunder cd=5s | range=8 (mục tiêu đầu) | jumpRange=4 | maxTargets=4
+                     dmgMul=[2.5,2,1.5,1] | segDelay=0.06s (lệch pha "xích")
+                     segLife=0.3s | segW=0.95 | skyH=3 | sparkLife=0.25
+                     sparkSize=0.95 | shake=0.12s | color=0xffe14a
+             .poison cd=10s | radius=2.5 | life=4s | tickInterval=0.5s
+                     dmgMul=0.6 | clusterR=2.5 | dropAhead=3 | bubbles=5
+                     bubbleRise=1.2 | bubbleSize=0.6 | color=0xa14bff
 CFG.assetScale  [VÒNG D-3b→D-3c] hero=1, monster_flower=1, monster_bug=2.16
              (bbox.h≈0.9), monster_slime=1, arrow=1 — nhân THÊM sau chuẩn hoá
              theo chiều cao (normalizeToHeight()) hoặc chiều dài dọc Z
@@ -731,12 +861,26 @@ với D-4, chỉ khác hình ảnh/scale/hướng asset):
                            KHÔNG chạy update gameplay nào.
   getSnapshot()          — {wave, enemiesAlive, heroHP, heroHPMax, level, xp, phase}
                            phase ∈ 'playing' | 'paused' | 'levelup' | 'won' | 'lost'
+  castSkill(i)           — [VÒNG D-5] dùng skill thứ i (0=Cầu Lửa, 1=Băng Nổ,
+                           2=Sét Xích, 3=Mây Độc). Trả true nếu ĐÃ cast (và
+                           nạp cooldown), false nếu phase!=='playing', cd>0,
+                           hoặc Sét Xích không có mục tiêu trong tầm.
+  getSkillState()        — [VÒNG D-5] [{id,cd,cdMax,ready} x4]
   hasFBX(key)            — key đó đang dùng FBX thật hay primitive
   _internal.{Assets, ASSET_SIZE, scene, camera, camLimitZ(), camLimitTopZ(),
              hudPadZ(), viewHalfZ()} — camera/clamp cho test_cam_* + test_hud
                            ([MOD-5 v2][MOD-6 v2])
   _internal.trailActiveCount() — số node vệt (trail) đang active, dùng cho
                            test_juice.js                              [D-4]
+  _internal.skillFx()    — [VÒNG D-5] {fx, fireballs, clouds, pending, rings,
+                           enemies, groupFxChildren, groupFxCensus} — đếm object
+                           VFX skill đang sống + thống kê con của groupFx theo
+                           (type:geometry:kích-thước-map). Dùng cho test rò rỉ
+                           mesh trong test_skills.js. LƯU Ý khi đọc số: groupFx
+                           còn chứa 14 plane vệt (trail pool, cố định) và các
+                           vòng đỏ telegraph của bọ (RingGeometry, có từ MOD-4)
+                           — mọi VFX skill đều là PlaneGeometry/Group nên nhìn
+                           census là phân biệt được ngay.
   _internal.floorTexture() — [D-3b] true nếu sàn đang dùng crop texture từ
                            floor.png (makeFloorCropTexture()), false = fallback
                            checkerTexture() ca-rô — dùng cho test_assets.js
